@@ -35,9 +35,13 @@ classifiers = [
 ]
 # add your package dependencies here
 dependencies = [
+    "dask",
     "matplotlib",
     "networkx",
-    "numpy"
+    "numpy",
+    "scikit-image",
+    "tifffile",
+    "zarr"
 ]
 
 # https://peps.python.org/pep-0621/#dependencies-optional-dependencies
