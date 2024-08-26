@@ -39,6 +39,7 @@ dependencies = [
     "matplotlib",
     "networkx",
     "numpy",
+    "pandas",
     "scikit-image",
     "tifffile",
     "zarr"
