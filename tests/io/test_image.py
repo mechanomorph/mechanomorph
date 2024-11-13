@@ -1,9 +1,11 @@
 import numpy as np
 from skimage.io import imsave
+import pytest
 
 from mechanomorph.io import read_lazy_tiff
 
 
+@pytest.mark.filterwarnings("ignore:ignoring keyword argument")
 def test_read_lazy_tiff(tmp_path):
     """Test reading a tiff."""
     image_shape = (5, 10, 10, 10)

@@ -36,6 +36,7 @@ classifiers = [
 # add your package dependencies here
 dependencies = [
     "dask",
+    "imagecodecs",
     "matplotlib",
     "networkx",
     "numpy",
