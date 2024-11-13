@@ -154,6 +154,7 @@ def graph_to_ctc(
     masks_original: np.ndarray,
     check: bool = True,
     frame_attribute: str = "time",
+    label_attribute: str = "label",
     outdir: Path | None = None,
 ) -> tuple[pd.DataFrame, np.ndarray]:
     """Convert graph to ctc track Dataframe and relabeled masks.
@@ -206,8 +207,8 @@ def graph_to_ctc(
         # relabel masks
         for _n in _nodes:
             node = graph.nodes[_n]
-            t = node[frame_attribute]
-            lab = node["label"]
+            t = int(node[frame_attribute])
+            lab = int(node[label_attribute])
             ss = regions[t][lab]
             m = masks_original[t][ss] == lab
             if masks[t][ss][m].max() > 0:
