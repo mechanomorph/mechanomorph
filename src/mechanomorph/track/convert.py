@@ -176,7 +176,7 @@ def graph_to_ctc(
 
     regions = tuple(
         {reg.label: reg.slice for reg in regionprops(m)}
-        for t, m in enumerate(masks_original)
+        for _, m in enumerate(masks_original)
     )
 
     masks = np.stack([np.zeros_like(m) for m in masks_original])
