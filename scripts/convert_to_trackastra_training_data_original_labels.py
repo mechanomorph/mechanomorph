@@ -1,4 +1,7 @@
-"""Example script to convert tracks to trackastra data for training."""
+"""Example script to convert tracks to trackastra data for training.
+
+This script uses the original, unsegmented labels.
+"""
 
 import glob
 import pickle
@@ -142,20 +145,28 @@ if __name__ == "__main__":
     frame_attribute = "t"
 
     # node data key on the tracking graph for the segmentation label
-    label_attribute = "opticell_label"
+    label_attribute = "original_label"
 
     # paths to the data to convert
     all_datasets = [
         DataToConvert(
-            graph_path=f"/nas/groups/iber/Projects/Embryo_parameter_estimation/old/process_all_opticell3d_20240812/track_old/embryo_{embryo_index}/curated_graph.pkl",
-            raw_directory_path=f"/nas/groups/iber/Projects/Embryo_parameter_estimation/old/process_all_opticell3d_20240812/pre_processed/embryo_{embryo_index}",
-            segmentation_directory_path=f"/nas/groups/iber/Projects/Embryo_parameter_estimation/old/process_all_opticell3d_20240812/track_old/embryo_{embryo_index}/relabeled_segmentation",
-            segmentation_file_template=f"embryo{embryo_index}" + "_t_{}_tracked.tif",
-            base_name=f"embryo{embryo_index}",
+            graph_path="/local1/code/mechanomorph/scripts/embryo3_curated_graph.pkl",
+            raw_directory_path="/nas/groups/iber/Projects/Embryo_parameter_estimation/old/process_all_opticell3d_20240812/pre_processed/embryo_3",
+            segmentation_directory_path="/local1/early_embryo/mzg_20240424/segmentations_preprocessed_retrained_20240307",
+            segmentation_file_template="embryo3_t_{}_seg.tif",
+            base_name="embryo3_original",
             frame_attribute=frame_attribute,
             label_attribute=label_attribute,
-        )
-        for embryo_index in [3, 4, 5, 6]
+        ),
+        DataToConvert(
+            graph_path="/local1/code/mechanomorph/scripts/embryo4_curated_graph.pkl",
+            raw_directory_path="/nas/groups/iber/Projects/Embryo_parameter_estimation/old/process_all_opticell3d_20240812/pre_processed/embryo_3",
+            segmentation_directory_path="/local1/early_embryo/mzg_20240424/process_all/segmentation/embryo4",
+            segmentation_file_template="embryo4_t_{}_seg.tif",
+            base_name="embryo4_original",
+            frame_attribute=frame_attribute,
+            label_attribute=label_attribute,
+        ),
     ]
 
     # process all files
