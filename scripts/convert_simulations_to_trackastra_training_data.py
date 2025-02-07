@@ -3,6 +3,7 @@
 import glob
 import pickle
 from dataclasses import dataclass
+from functools import partial
 from os import PathLike
 from pathlib import Path
 
@@ -24,22 +25,24 @@ def load_graph_pickle(file_path: PathLike) -> nx.DiGraph:
 
     # convert the graph to a directed graph
     # note that this creates a directed edge in both directions
-    directed_graph = graph.to_directed()
+    # directed_graph = graph.to_directed()
+    #
+    # # get the edges that point backward in time
+    # edges_to_remove = []
+    # for edge in directed_graph.edges():
+    #     # edges are ((time_start, label_start), (time_end, label_end))
+    #     start_node_time = edge[0][0]
+    #     end_node_time = edge[1][0]
+    #     if start_node_time > end_node_time:
+    #         edges_to_remove.append(edge)
+    #
+    # # remove the edges that point backwards in time
+    # for edge in edges_to_remove:
+    #     directed_graph.remove_edge(edge[0], edge[1])
 
-    # get the edges that point backward in time
-    edges_to_remove = []
-    for edge in directed_graph.edges():
-        # edges are ((time_start, label_start), (time_end, label_end))
-        start_node_time = edge[0][0]
-        end_node_time = edge[1][0]
-        if start_node_time > end_node_time:
-            edges_to_remove.append(edge)
+    # return directed_graph
 
-    # remove the edges that point backwards in time
-    for edge in edges_to_remove:
-        directed_graph.remove_edge(edge[0], edge[1])
-
-    return directed_graph
+    return graph
 
 
 def load_segmentations_from_paths(file_paths: list[PathLike]) -> np.ndarray:
@@ -96,15 +99,29 @@ def convert_to_trackastra_training_data(
     graph = load_graph_pickle(graph_path)
     segmentations = load_segmentations_from_paths(segmentation_paths)
 
+    print(
+        f"{track_output_directory_path}: {segmentations.shape[0]} segmentations loaded"
+    )
+
     # add the node data
     node_data = {}
     for time_index, label_value in graph.nodes():
         node_data[(time_index, label_value)] = {
-            frame_attribute: time_index
-            - 1,  # time is indexed from 1 in the graph, but should be from 0
+            frame_attribute: time_index - 1,
             label_attribute: label_value,
         }
     nx.set_node_attributes(graph, node_data)
+
+    # remove the node with negative time
+    nodes_to_remove = []
+    for node_key, node_data in graph.nodes(data=True):
+        time_index = node_data[frame_attribute]
+        if time_index < 0:
+            nodes_to_remove.append(node_key)
+
+    for node_key in nodes_to_remove:
+        print(node_key)
+        graph.remove_node(node_key)
 
     # convert and write out the data
     tracking_table, masks = graph_to_ctc(
@@ -146,6 +163,49 @@ def convert_to_trackastra_training_data(
         tifffile.imwrite(
             raw_output_directory / file_name,
             make_image_from_mask(mask, gaussian_sigma=2),
+            compression="zstd",
+        )
+
+
+def convert_directory(
+    directory_path: Path,
+    output_base_directory: Path,
+    graph_name: str = "graph.gpickle",
+    segmentation_file_template: str = "result_{}.tif",
+    frame_attribute: str = "t",
+    label_attribute: str = "opticell_label",
+) -> None:
+    """Iterate over files in a directory to convert to trackastra training data."""
+    graph_path = directory_path / graph_name
+
+    for subdirectory in ["voxel_size_05_um", "voxel_size_075_um"]:
+        # get the segmentation paths
+        segmentation_directory_path = directory_path / "seg_label_images" / subdirectory
+        n_images = len(glob.glob((segmentation_directory_path / "*.tif").as_posix()))
+        segmentation_paths = [
+            segmentation_directory_path / segmentation_file_template.format(time_index)
+            for time_index in range(n_images)
+        ]
+
+        # make the output directory path
+        output_base_name = f"{directory_path.stem}_{subdirectory}"
+
+        # directory to store all of re-formmated data from this dataset
+        ground_truth_directory = output_base_directory / f"{output_base_name}_GT"
+
+        # directory to save the reformmated tracks to
+        track_output_directory_path = ground_truth_directory / "TRA"
+
+        # directory to save the raw image to
+        raw_output_directory = output_base_directory / output_base_name
+
+        convert_to_trackastra_training_data(
+            graph_path=graph_path,
+            segmentation_paths=segmentation_paths,
+            track_output_directory_path=track_output_directory_path,
+            raw_output_directory_path=raw_output_directory,
+            frame_attribute=frame_attribute,
+            label_attribute=label_attribute,
         )
 
 
@@ -163,8 +223,16 @@ class DataToConvert:
 
 
 if __name__ == "__main__":
+    # a list of the simulation output directories
+    base_simulation_directory = Path(
+        "/nas/groups/iber/Projects/Embryo_parameter_estimation/ground_truth_movies_tracking/img_tracking/simulation_outputs"
+    )
+
+    directory_pattern = str(base_simulation_directory / "simulation_*")
+    simulation_directories = [Path(path) for path in glob.glob(directory_pattern)]
+
     # base directory in which to save all ground truth
-    base_directory = Path("./track_data")
+    output_base_directory = Path("./track_data")
 
     # node data key on the tracking graph for the time index
     frame_attribute = "t"
@@ -172,52 +240,24 @@ if __name__ == "__main__":
     # node data key on the tracking graph for the segmentation label
     label_attribute = "opticell_label"
 
-    # paths to the data to convert
-    all_datasets = [
-        DataToConvert(
-            graph_path="/nas/groups/iber/Projects/Embryo_parameter_estimation/ground_movies_tracking/graph.gpickle",
-            raw_directory_path="",
-            segmentation_directory_path="/nas/groups/iber/Projects/Embryo_parameter_estimation/ground_movies_tracking/seg_label_images/voxel_size_05_um",
-            segmentation_file_template="result_{}.tif",
-            base_name="simulation_05",
-            frame_attribute=frame_attribute,
-            label_attribute=label_attribute,
-        ),
-        DataToConvert(
-            graph_path="/nas/groups/iber/Projects/Embryo_parameter_estimation/ground_movies_tracking/graph.gpickle",
-            raw_directory_path="",
-            segmentation_directory_path="/nas/groups/iber/Projects/Embryo_parameter_estimation/ground_movies_tracking/seg_label_images/voxel_size_075_um",
-            segmentation_file_template="result_{}.tif",
-            base_name="simulation_075",
-            frame_attribute=frame_attribute,
-            label_attribute=label_attribute,
-        ),
-    ]
+    # format for making the segmentation file name
+    # the time frame index is inserted in the {}
+    segmentation_file_template = "result_{}.tif"
 
-    # process all files
-    for dataset in all_datasets:
-        segmentation_directory_path = Path(dataset.segmentation_directory_path)
-        n_images = len(glob.glob((segmentation_directory_path / "*.tif").as_posix()))
-        segmentation_paths = [
-            segmentation_directory_path
-            / dataset.segmentation_file_template.format(time_index + 1)
-            for time_index in range(n_images)
-        ]
+    # the name of the ground truth tracking graph
+    graph_name = "graph.gpickle"
 
-        # directory to store all of re-formmated data from this dataset
-        ground_truth_directory = base_directory / f"{dataset.base_name}_GT"
+    conversion_function = partial(
+        convert_directory,
+        output_base_directory=output_base_directory,
+        graph_name=graph_name,
+        segmentation_file_template=segmentation_file_template,
+        frame_attribute=frame_attribute,
+        label_attribute=label_attribute,
+    )
 
-        # directory to save the reformmated tracks to
-        tracks_directory = ground_truth_directory / "TRA"
+    # with mp.get_context('spawn').Pool() as pool:
+    #     pool.map(conversion_function, simulation_directories)
 
-        # directory to save the raw image to
-        raw_directory = base_directory / dataset.base_name
-
-        convert_to_trackastra_training_data(
-            graph_path=dataset.graph_path,
-            segmentation_paths=segmentation_paths,
-            track_output_directory_path=tracks_directory,
-            raw_output_directory_path=raw_directory,
-            frame_attribute=dataset.frame_attribute,
-            label_attribute=dataset.label_attribute,
-        )
+    for directory in simulation_directories:
+        conversion_function(directory)
