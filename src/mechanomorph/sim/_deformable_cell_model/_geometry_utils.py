@@ -42,7 +42,8 @@ def find_intersecting_bounding_boxes(boxes: torch.Tensor):
     intersection.fill_diagonal_(False)
 
     # Only get (i, j) where i < j to avoid duplicate pairs
-    i, j = torch.triu_indices(n_boxes, n_boxes, offset=1)
+    # this array is on the same device as boxes
+    i, j = torch.triu_indices(n_boxes, n_boxes, offset=1, device=boxes.device)
     mask = intersection[i, j]
 
     intersecting_pairs = torch.stack([i[mask], j[mask]], dim=1)  # (M, 2)
