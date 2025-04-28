@@ -329,11 +329,8 @@ if __name__ == "__main__":
         loss = (torch.abs(axis_1_length - 42e-6)) / (42e-6)
         loss.backward()
         print(f"    loss: {loss.item()}")
-        print(f"    st grad before clip: {model.normalized_surface_tension.grad}")
-        print(f"    p grad before clip: {model.normalized_pressure.grad}")
-        # torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
-        # print(f"    st grad after clip: {model.normalized_surface_tension.grad}")
-        # print(f"    p grad after clip: {model.normalized_pressure.grad}")
+        print(f"    st grad: {model.normalized_surface_tension.grad}")
+        print(f"    p grad: {model.normalized_pressure.grad}")
 
         optimizer.step()
 
