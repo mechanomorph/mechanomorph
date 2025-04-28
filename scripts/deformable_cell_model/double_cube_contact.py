@@ -53,7 +53,10 @@ class SoapBubble(torch.nn.Module):
         n_forward_iterations: int = 10,
         time_step: float = 30.0,
         contact_distance_threshold: float = 0.3,
-        surface_tension: float = 1.0,
+        normalized_pressure: float = 0.5,
+        normalized_surface_tension: float = 0.5,
+        pressure_range: tuple[float, float] = (10.0, 200.0),
+        surface_tension_range: tuple[float, float] = (0.002, 0.02),
         target_cell_volume: float = 1.0,
         bulk_modulus: float = 2500.0,
     ):
@@ -66,14 +69,17 @@ class SoapBubble(torch.nn.Module):
         # static parameters
         self.bulk_modulus = bulk_modulus
         self.contact_distance_threshold = contact_distance_threshold
+        self.target_cell_volume = target_cell_volume
+        self.pressure_range = pressure_range
+        self.surface_tension_range = surface_tension_range
 
         # model parameters (these can be optimized)
-        self.surface_tension = torch.nn.Parameter(
-            torch.tensor(surface_tension, dtype=torch.float32)
+        self.normalized_surface_tension = torch.nn.Parameter(
+            torch.tensor(normalized_surface_tension, dtype=torch.float32)
         )
-        self.target_cell_volume = torch.nn.Parameter(target_cell_volume)
-
-        self.pressure = torch.tensor(100, dtype=torch.float32)
+        self.normalized_pressure = torch.nn.Parameter(
+            torch.tensor(normalized_pressure, dtype=torch.float32)
+        )
 
     def forward(self, mesh_data):
         """Run the model.
@@ -93,8 +99,18 @@ class SoapBubble(torch.nn.Module):
         self.cell_face_list = mesh_data["cell_face_list"]
         self.bounding_boxes = mesh_data["bounding_boxes"]
 
+        # un-normalized parameters
+        pressure = (
+            self.normalized_pressure * (self.pressure_range[1] - self.pressure_range[0])
+        ) + self.pressure_range[0]
+        surface_tension = (
+            self.normalized_surface_tension
+            * (self.surface_tension_range[1] - self.surface_tension_range[0])
+        ) + self.surface_tension_range[0]
+        print(f"pressure: {pressure} surface tension: {surface_tension}")
+
         scaled_target_volume = self.target_cell_volume * torch.exp(
-            self.pressure / self.bulk_modulus
+            pressure / self.bulk_modulus
         )
 
         all_vertex_contact_maps = []
@@ -145,7 +161,7 @@ class SoapBubble(torch.nn.Module):
             )
 
             # # get the surface tensions
-            face_surface_tension = self.surface_tension * torch.ones(
+            face_surface_tension = surface_tension * torch.ones(
                 self.faces.shape[0],
                 dtype=self.vertex_coordinates.dtype,
                 requires_grad=True,
@@ -241,7 +257,8 @@ if __name__ == "__main__":
     n_forward_iterations = 1000
 
     # mechanical parameters
-    surface_tension = 0.001
+    surface_tension = 0.4
+    pressure = 0.5
 
     initial_vertices, initial_faces, face_cell_index, bounding_boxes = load_mesh(
         file_path="double_cube_mesh.h5",
@@ -259,7 +276,8 @@ if __name__ == "__main__":
 
     model = SoapBubble(
         n_forward_iterations=n_forward_iterations,
-        surface_tension=surface_tension,
+        normalized_pressure=pressure,
+        normalized_surface_tension=surface_tension,
         target_cell_volume=cell_volumes,
         contact_distance_threshold=0.3e-6,
     )
@@ -281,9 +299,17 @@ if __name__ == "__main__":
     final_vertices = final_mesh["vertices"]
     mean_coordinate = torch.mean(final_vertices, dim=0)
 
-    loss = torch.mean(torch.abs((final_vertices - mean_coordinate) - 60e-6))
+    axis_1_length = (
+        torch.max(final_vertices, dim=0)[0][1] - torch.min(final_vertices, dim=0)[0][1]
+    )
+    print(f"axis 1 length: {axis_1_length * 1e6}")
+
+    loss = torch.abs(axis_1_length - 42e-6)
     loss.backward()
-    print(model.target_cell_volume.grad)
+    print(f"loss: {loss.item()}")
+    print(f"grad before clip: {model.normalized_surface_tension.grad}")
+    torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
+    print(f"grad after clip: {model.normalized_surface_tension.grad}")
 
     # make the viewer
     plane_parameters = {"position": (0, 15, 0), "normal": (0, 1, 0), "enabled": True}
