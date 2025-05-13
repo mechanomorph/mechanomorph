@@ -2,7 +2,6 @@
 
 import time
 
-import napari
 import numpy as np
 import torch
 from skimage.measure import marching_cubes
@@ -164,8 +163,11 @@ def forward_simulation(
         lower_triangle_indices = upper_triangle_indices.flip(0)
         cell_contact_map = torch.sparse_coo_tensor(
             indices=torch.cat([upper_triangle_indices, lower_triangle_indices], dim=1),
-            values=torch.ones(2 * contacting_cells.shape[0]),
+            values=torch.ones(
+                2 * contacting_cells.shape[0], device=vertex_coordinates.device
+            ),
             check_invariants=True,
+            device=vertex_coordinates.device,
         )
 
         vertex_contact_map = find_contacting_vertices_from_cell_map(
@@ -204,6 +206,7 @@ def forward_simulation(
             faces.shape[0],
             dtype=vertex_coordinates.dtype,
             requires_grad=True,
+            device=vertex_coordinates.device,
         )
 
         # we don't have static nodes
@@ -468,27 +471,88 @@ if __name__ == "__main__":
     print(f"    Mean contact time: {mean_contact_time:.6f} s")
     print(f"    Mean forces time: {mean_forces_time:.6f} s")
 
-    # visualize results
-    plane_parameters = {"position": (0, 15, 0), "normal": (0, 1, 0), "enabled": True}
-    viewer = napari.Viewer()
-    initial_mesh_layer = viewer.add_surface(
-        (initial_vertices.numpy(force=True), initial_faces.numpy(force=True)),
-        visible=False,
+    # Run on GPU
+    print("GPU run 1")
+    (
+        final_mesh,
+        total_forward_time,
+        mean_forward_loop_time,
+        mean_contact_time,
+        mean_forces_time,
+    ) = benchmark_optimization_iteration(
+        device="cuda:0",
+        vertices=initial_vertices * grid_spacing,
+        faces=initial_faces,
+        face_cell_index=face_cell_index,
+        bounding_boxes=bounding_boxes,
+        n_forward_iterations=n_forward_iterations,
+        time_step=time_step,
+        normalized_pressure=normalized_pressure,
+        normalized_surface_tension=normalized_surface_tension,
+        pressure_range=pressure_range,
+        surface_tension_range=surface_tension_range,
+        bulk_modulus=bulk_modulus,
+        target_cell_volumes=target_cell_volumes,
+        contact_distance_threshold=contact_distance_threshold,
     )
-    initial_mesh_layer.wireframe.visible = True
-    initial_mesh_layer.normals.face.visible = True
+    assert final_mesh["vertices"].device == torch.device("cuda:0")
 
-    final_mesh_layer = viewer.add_surface(
-        (
-            final_mesh["vertices"].numpy(force=True) * 1e6,
-            final_mesh["faces"].numpy(force=True),
-        ),
-        experimental_clipping_planes=[plane_parameters],
-        name="final mesh",
+    print(f"    Total forward time: {total_forward_time:.6f} s")
+    print(f"    Mean forward loop time: {mean_forward_loop_time:.6f} s")
+    print(f"    Mean contact time: {mean_contact_time:.6f} s")
+    print(f"    Mean forces time: {mean_forces_time:.6f} s")
+
+    print("GPU run 2")
+    (
+        final_mesh,
+        total_forward_time,
+        mean_forward_loop_time,
+        mean_contact_time,
+        mean_forces_time,
+    ) = benchmark_optimization_iteration(
+        device="cuda:0",
+        vertices=initial_vertices * grid_spacing,
+        faces=initial_faces,
+        face_cell_index=face_cell_index,
+        bounding_boxes=bounding_boxes,
+        n_forward_iterations=n_forward_iterations,
+        time_step=time_step,
+        normalized_pressure=normalized_pressure,
+        normalized_surface_tension=normalized_surface_tension,
+        pressure_range=pressure_range,
+        surface_tension_range=surface_tension_range,
+        bulk_modulus=bulk_modulus,
+        target_cell_volumes=target_cell_volumes,
+        contact_distance_threshold=contact_distance_threshold,
     )
-    final_mesh_layer.wireframe.visible = True
-    final_mesh_layer.normals.face.visible = True
+    assert final_mesh["vertices"].device == torch.device("cuda:0")
 
-    viewer.dims.ndisplay = 3
+    print(f"    Total forward time: {total_forward_time:.6f} s")
+    print(f"    Mean forward loop time: {mean_forward_loop_time:.6f} s")
+    print(f"    Mean contact time: {mean_contact_time:.6f} s")
+    print(f"    Mean forces time: {mean_forces_time:.6f} s")
 
-    napari.run()
+    # # visualize results
+    # plane_parameters = {"position": (0, 15, 0), "normal": (0, 1, 0), "enabled": True}
+    # viewer = napari.Viewer()
+    # initial_mesh_layer = viewer.add_surface(
+    #     (initial_vertices.numpy(force=True), initial_faces.numpy(force=True)),
+    #     visible=False,
+    # )
+    # initial_mesh_layer.wireframe.visible = True
+    # initial_mesh_layer.normals.face.visible = True
+    #
+    # final_mesh_layer = viewer.add_surface(
+    #     (
+    #         final_mesh["vertices"].numpy(force=True) * 1e6,
+    #         final_mesh["faces"].numpy(force=True),
+    #     ),
+    #     experimental_clipping_planes=[plane_parameters],
+    #     name="final mesh",
+    # )
+    # final_mesh_layer.wireframe.visible = True
+    # final_mesh_layer.normals.face.visible = True
+    #
+    # viewer.dims.ndisplay = 3
+    #
+    # napari.run()

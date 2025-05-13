@@ -51,7 +51,6 @@ def compute_surface_tension_forces(
         epsilon=epsilon,
     )
     surface_tension_unsqueezed = face_surface_tension.unsqueeze(1)
-
     surface_tension_force_face_v0 = (
         torch.linalg.cross(unit_normals, vertex_2_coordinates - vertex_1_coordinates)
         * surface_tension_unsqueezed

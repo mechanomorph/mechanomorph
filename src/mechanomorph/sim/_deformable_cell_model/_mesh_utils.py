@@ -42,15 +42,15 @@ def get_face_vertex_mapping(
     n_nodes = vertices.shape[0]
     n_faces = faces.shape[0]
 
-    data_n1 = torch.ones((n_faces,), dtype=dtype)
-    data_n2 = torch.ones((n_faces,), dtype=dtype)
-    data_n3 = torch.ones((n_faces,), dtype=dtype)
+    data_n1 = torch.ones((n_faces,), dtype=dtype, device=vertices.device)
+    data_n2 = torch.ones((n_faces,), dtype=dtype, device=vertices.device)
+    data_n3 = torch.ones((n_faces,), dtype=dtype, device=vertices.device)
 
     col_n1 = faces[:, 0]
     col_n2 = faces[:, 1]
     col_n3 = faces[:, 2]
 
-    face_indices = torch.arange(n_faces)
+    face_indices = torch.arange(n_faces, device=vertices.device)
     n1_indices = torch.column_stack([face_indices, col_n1]).T
     n2_indices = torch.column_stack([face_indices, col_n2]).T
     n3_indices = torch.column_stack([face_indices, col_n3]).T

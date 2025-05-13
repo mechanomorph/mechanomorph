@@ -146,3 +146,7 @@ ignore = [
     ".ruff_cache/**/*",
     "tests/**/*",
 ]
+
+
+[tool.uv]
+python-preference = "only-managed"
