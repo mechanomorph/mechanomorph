@@ -28,7 +28,9 @@ def cell_cell_adhesion_potential(
         The strength of the adhesion. Must be broadcastable
         to (n_agents, n_agents).
     power : float
-        The power of the potential function. Default is 1.0.
+        The power of the potential function.
+        Note the computed exponent is power + 1.
+        Default is 1.0.
 
     Returns
     -------
@@ -77,7 +79,9 @@ def cell_cell_repulsion_potential(
         The strength of the adhesion. Must be broadcastable
         to (n_agents, n_agents).
     power : float
-        The power of the potential function. Default is 1.0.
+        The power of the potential function.
+        Note the computed exponent is power + 1.
+        Default is 1.0.
 
     Returns
     -------

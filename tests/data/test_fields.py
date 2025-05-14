@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from mechanomorph.sim.agent.forces import ScalarField, VectorField
+from mechanomorph.data import ScalarField, VectorField
 
 
 def test_scalar_field():
