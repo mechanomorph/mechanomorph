@@ -48,7 +48,11 @@ def cell_boundary_adhesion_potential(
 
     normal_vectors = normals_field.sample(positions)
 
-    return adhesion_strength * potential_magnitude * normal_vectors
+    return (
+        -adhesion_strength.unsqueeze(dim=1)
+        * potential_magnitude.unsqueeze(dim=1)
+        * normal_vectors
+    )
 
 
 def cell_boundary_repulsion_potential(
@@ -96,4 +100,8 @@ def cell_boundary_repulsion_potential(
 
     normal_vectors = normals_field.sample(positions)
 
-    return -repulsion_strength * potential_magnitude * normal_vectors
+    return (
+        repulsion_strength.unsqueeze(dim=1)
+        * potential_magnitude.unsqueeze(dim=1)
+        * normal_vectors
+    )
