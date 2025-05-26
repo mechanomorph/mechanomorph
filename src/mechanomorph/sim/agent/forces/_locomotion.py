@@ -20,8 +20,8 @@ def _random_unit_vectors(shape: tuple[int, int], device: str = "cpu") -> torch.T
     torch.Tensor
         An array of random unit vectors.
     """
-    # generate random vectors
-    random_vectors = torch.rand(shape, device=device)
+    # generate random vectors (range -1 to 1)
+    random_vectors = (torch.rand(shape, device=device) * 2) - 1
 
     # normalize the vectors
     return torch.nn.functional.normalize(random_vectors, dim=1)
@@ -58,14 +58,17 @@ def biased_random_locomotion_force(
     n_agents = previous_direction.shape[0]
 
     # determine which agents will change direction
-    change_direction_mask = torch.rand(n_agents) <= direction_change_probability
+    change_direction_mask = (
+        torch.rand(n_agents, device=previous_direction.device)
+        <= direction_change_probability
+    )
 
     # compute the new directions
     new_biased_direction = (
         bias_constant.unsqueeze(dim=1) * bias_direction
     ) * previous_direction
     new_random_direction = (1 - bias_constant.unsqueeze(dim=1)) * _random_unit_vectors(
-        (n_agents, 3)
+        (n_agents, 3), device=previous_direction.device
     )
     new_direction = torch.nn.functional.normalize(
         new_biased_direction + new_random_direction, dim=1

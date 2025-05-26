@@ -71,7 +71,11 @@ class ScalarField:
         indices = positions.round().long()
 
         # clamp indices to the boundaries of the field
-        indices = torch.clamp(indices, 0, self.field.shape[0] - 1)
+        max_indices = torch.tensor(self.field.shape, device=self.field.device) - 1
+        indices = torch.clamp(
+            indices, torch.tensor([0, 0, 0], device=self.field.device), max=max_indices
+        )
+
         # sample the field at the given indices
         return self.field[indices[:, 0], indices[:, 1], indices[:, 2]]
 
@@ -145,6 +149,12 @@ class VectorField:
         indices = positions.round().long()
 
         # clamp indices to the boundaries of the field
-        indices = torch.clamp(indices, 0, self.field.shape[1] - 1)
+        max_indices = (
+            torch.tensor(self.field.shape, device=self.field.device)[1:, ...] - 1
+        )
+        indices = torch.clamp(
+            indices, torch.tensor([0, 0, 0], device=self.field.device), max=max_indices
+        )
+
         # sample the field at the given indices
         return self.field[:, indices[:, 0], indices[:, 1], indices[:, 2]].T

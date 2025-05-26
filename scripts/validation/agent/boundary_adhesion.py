@@ -66,7 +66,7 @@ def compute_forces(
     )
 
     # compute the boundary repulsion force
-    boundary_repulsion_forces = cell_boundary_adhesion_potential(
+    boundary_adhesion_forces = cell_boundary_adhesion_potential(
         positions=positions,
         interaction_radii=boundary_interaction_radii,
         adhesion_strength=boundary_adhesion_strength,
@@ -75,7 +75,7 @@ def compute_forces(
         power=0,
     )
 
-    return locomotion_forces + boundary_repulsion_forces
+    return locomotion_forces + boundary_adhesion_forces
 
 
 if __name__ == "__main__":
