@@ -20,7 +20,7 @@ def test_find_intersecting_boxes_3d():
     intersecting_pairs = find_intersecting_bounding_boxes(boxes)
 
     # Convert to set of tuples for easier comparison
-    pairs_set = {[tuple(sorted(pair)) for pair in intersecting_pairs.tolist()]}
+    pairs_set = {tuple(sorted(pair)) for pair in intersecting_pairs.tolist()}
 
     expected_pairs = {
         (0, 1),
