@@ -3,6 +3,36 @@ from jax import Array as JaxArray
 from jax.experimental import sparse
 
 
+def compute_cell_volume_packed(
+    vertex_positions: JaxArray,
+    faces: JaxArray,
+    face_mask: JaxArray,
+) -> JaxArray:
+    """
+    Computes the signed volume of a closed triangular mesh (cell).
+
+    Parameters
+    ----------
+    vertex_positions : (max_vertices_per_cell, 3)
+        Padded array of vertex coordinates for a single cell.
+    faces : (max_faces_per_cell, 3)
+        Indices into `vertex_positions`, defining each triangular face.
+    face_mask : (max_faces_per_cell,)
+        Boolean mask indicating valid faces.
+
+    Returns
+    -------
+    volume : float
+        Signed volume of the cell.
+    """
+    v1 = vertex_positions[faces[:, 0]]
+    v2 = vertex_positions[faces[:, 1]]
+    v3 = vertex_positions[faces[:, 2]]
+    volume_contrib = jnp.einsum("ij,ij->i", v1, jnp.cross(v2, v3))
+    volume_contrib = jnp.where(face_mask, volume_contrib, 0.0)
+    return jnp.sum(volume_contrib) / 6.0
+
+
 def compute_cell_volume(
     n1_coordinates: JaxArray, n2_coordinates: JaxArray, n3_coordinates: JaxArray
 ):
