@@ -20,12 +20,6 @@ def test_compute_pressure_forces_vmap():
     """
     Check that the computation of the pressure forces is correct.
     """
-
-    # dummy_vertices, dummy_faces, dummy_face_cells = generate_dummy_mesh()
-    #
-    # # Create a tissue mesh object
-    # tissue_mesh = TissueMesh(dummy_vertices, dummy_faces, dummy_face_cells)
-
     # Define the cell pressures
     cell_pressure_ar = np.array([100.0, 200.0])  # Pa
     bulk_modulus = 2500.0  # Pa
