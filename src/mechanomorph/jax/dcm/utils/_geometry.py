@@ -28,9 +28,11 @@ def compute_cell_volume_packed(
     v1 = vertex_positions[faces[:, 0]]
     v2 = vertex_positions[faces[:, 1]]
     v3 = vertex_positions[faces[:, 2]]
-    volume_contrib = jnp.einsum("ij,ij->i", v1, jnp.cross(v2, v3))
-    volume_contrib = jnp.where(face_mask, volume_contrib, 0.0)
-    return jnp.sum(volume_contrib) / 6.0
+
+    # volume_contrib = jnp.einsum("ij,ij->i", v1, jnp.cross(v2, v3))
+    volume_contribution = jnp.sum(v1 * jnp.cross(v2, v3), axis=-1)
+    volume_contribution = jnp.where(face_mask, volume_contribution, 0.0)
+    return jnp.sum(volume_contribution) / 6.0
 
 
 def compute_cell_volume(
