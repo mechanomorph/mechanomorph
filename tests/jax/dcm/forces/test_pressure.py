@@ -64,18 +64,20 @@ def test_compute_pressure_forces_vmap():
     assert not face_overflow
     assert not cell_overflow
 
-    # JIT-compiled single-cell pressure force computation
-    jit_compute_cell_pressure_forces_dense = jax.jit(compute_cell_pressure_forces)
-
-    # Vectorized computation across all cells
-    vmap_compute_cell_pressure_forces_dense = jax.vmap(
-        jit_compute_cell_pressure_forces_dense,
+    # vectorize to batch the computation of the pressure forces
+    batched_compute_cell_pressure_forces = jax.vmap(
+        compute_cell_pressure_forces,
         in_axes=(0, 0, 0, 0, 0, None),
         out_axes=0,
     )
 
+    # JIT the batched function for performance
+    jit_batched_compute_cell_pressure_forces = jax.jit(
+        batched_compute_cell_pressure_forces,
+    )
+
     # compute the forces
-    per_cell_forces = vmap_compute_cell_pressure_forces_dense(
+    per_cell_forces = jit_batched_compute_cell_pressure_forces(
         vertices_packed,
         valid_vertices_mask,
         faces_packed,
