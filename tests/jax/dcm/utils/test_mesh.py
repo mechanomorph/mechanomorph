@@ -1,7 +1,11 @@
 import jax.numpy as jnp
 import numpy as np
 
-from mechanomorph.jax.dcm.utils import pack_mesh_to_cells
+from mechanomorph.jax.dcm.utils import (
+    compute_face_normal_centroid_dot_product,
+    detect_aabb_intersections,
+    pack_mesh_to_cells,
+)
 from mechanomorph.jax.utils.testing import generate_two_cubes
 
 
@@ -276,3 +280,115 @@ def test_pack_mesh_to_cells_cell_overflow():
     assert vertex_overflow
     assert face_overflow
     assert cell_overflow
+
+
+def test_compute_face_normal_centroid_dot_product_simple_tetrahedron():
+    """Test with a simple tetrahedron with mixed inward and outward facing normals."""
+    # Simple tetrahedron with one vertex at origin and three at unit distances
+    vertices = jnp.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+
+    # Define faces with mixed orientations
+    faces = jnp.array(
+        [
+            [2, 1, 0],  # outward facing (counter-clockwise from outside)
+            [3, 2, 0],  # outward facing (counter-clockwise from outside)
+            [1, 0, 3],  # inward facing (clockwise from outside)
+            [2, 1, 3],  # inward facing (clockwise from outside)
+        ]
+    )
+
+    dot_products = compute_face_normal_centroid_dot_product(vertices, faces)
+
+    # Check basic properties
+    assert dot_products.shape == (
+        4,
+    ), f"Expected 4 dot products, got {dot_products.shape}"
+
+    # Check that first two faces (outward) have positive dot products
+    assert jnp.all(dot_products[:2] > 0)
+
+    # Check that last two faces (inward) have negative dot products
+    assert jnp.all(dot_products[2:] < 0)
+
+
+def test_detect_aabb_intersections_two_cubes():
+    """Test AABB intersection detection on two adjacent cubes."""
+    # make a mesh with three objects.
+    # 0, 1 are in contact, 2 is by itself
+    vertices_packed = jnp.array(
+        [
+            [
+                [0, 0, 0],
+                [0, 0, 1],
+                [0, 1, 1],
+                [0, 0, 0],  # padding
+            ],
+            [
+                [0, 0, 1.1],
+                [0, 0, 2],
+                [0, 1, 2],
+                [0, 0, 0],  # padding
+            ],
+            [
+                [10, 0, 0],
+                [10, 0, 1],
+                [10, 1, 1],
+                [0, 0, 0],  # padding
+            ],
+            [
+                [0, 0, 0],  # padding
+                [0, 0, 0],  # padding
+                [0, 0, 0],  # padding
+                [0, 0, 0],  # padding
+            ],
+        ]
+    )
+    valid_vertices_mask = jnp.array(
+        [
+            [True, True, True, False],  # first cell
+            [True, True, True, False],  # second cell
+            [True, True, True, False],  # third cell
+            [False, False, False, False],  # padding cell
+        ]
+    )
+
+    # Make the valid cells mask
+    # The last cell is padding.
+    valid_cells_mask = jnp.array([True, True, True, False])
+
+    # Check intersection
+    (intersecting_pairs, valid_pairs_mask, n_intersecting, bounding_boxes) = (
+        detect_aabb_intersections(
+            vertices_packed=vertices_packed,
+            valid_vertices_mask=valid_vertices_mask,
+            valid_cells_mask=valid_cells_mask,
+            expansion=0.5,
+            max_cells=vertices_packed.shape[0],
+            max_cell_pairs=10,
+        )
+    )
+
+    valid_intersecting_pairs = intersecting_pairs[valid_pairs_mask]
+    np.testing.assert_array_equal(valid_intersecting_pairs, jnp.array([[0, 1]]))
+    assert n_intersecting == 1
+
+    assert bounding_boxes.shape == (4, 6)  # 3 cells, each with 6 bounding box values
+    np.testing.assert_allclose(
+        bounding_boxes[0],
+        [-0.5, -0.5, -0.5, 0.5, 1.5, 1.5],  # Bounding box for first cube
+    )
+    np.testing.assert_allclose(
+        bounding_boxes[1],
+        [-0.5, -0.5, 0.6, 0.5, 1.5, 2.5],  # Bounding box for second cube
+    )
+    np.testing.assert_allclose(
+        bounding_boxes[2],
+        [9.5, -0.5, -0.5, 10.5, 1.5, 1.5],  # Bounding box for third cube
+    )
