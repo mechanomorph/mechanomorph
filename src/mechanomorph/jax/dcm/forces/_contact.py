@@ -168,3 +168,183 @@ def find_contacting_vertices(
     )
 
     return final_pairs, final_mask, final_dists
+
+
+def label_vertices(
+    contact_vertex_pairs: jnp.ndarray,
+    contact_mask: jnp.ndarray,
+    n_total_vertices: int,
+    max_iterations: int = 10,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Assign connected component labels to contacting vertices.
+
+    This uses the Union-Find algorithm.
+
+    Parameters
+    ----------
+    contact_vertex_pairs : jnp.ndarray
+        Array of shape (max_contacts, 2) containing pairs of vertex indices
+        that are in contact. Invalid entries should be -1.
+    contact_mask : jnp.ndarray
+        Boolean array of shape (max_contacts,) indicating which contact
+        pairs are valid.
+    n_total_vertices : int
+        Total number of vertices across all cells. This is a compile-time
+        constant for JIT compatibility.
+    max_iterations : int
+        Maximum number of union-find iterations. Should be at least the
+        diameter of the largest expected connected component.
+
+    Returns
+    -------
+    vertex_labels : jnp.ndarray
+        Array of shape (n_total_vertices,) containing the component label
+        for each vertex. Non-contacting vertices have their own unique label
+        equal to their vertex index.
+    is_contacting : jnp.ndarray
+        Boolean array of shape (n_total_vertices,) indicating which vertices
+        are part of any contact.
+    """
+    # Initialize parent array - each vertex is its own parent initially
+    parent = jnp.arange(n_total_vertices)
+
+    # Mark which vertices are involved in any contact
+    is_contacting = jnp.zeros(n_total_vertices, dtype=bool)
+
+    def mark_contacting(carry, idx):
+        """Mark vertices involved in contacts.
+
+        Parameters
+        ----------
+        carry : jnp.ndarray
+            Current is_contacting array.
+        idx : int
+            Index into contact arrays.
+
+        Returns
+        -------
+        carry : jnp.ndarray
+            Updated is_contacting array.
+        _ : None
+            Unused output for scan compatibility.
+        """
+        is_cont = carry
+        valid = contact_mask[idx]
+        v1 = contact_vertex_pairs[idx, 0]
+        v2 = contact_vertex_pairs[idx, 1]
+
+        # Only mark if this is a valid contact and indices are in bounds
+        v1_valid = valid & (v1 >= 0) & (v1 < n_total_vertices)
+        v2_valid = valid & (v2 >= 0) & (v2 < n_total_vertices)
+
+        is_cont = is_cont.at[v1].set(jnp.where(v1_valid, True, is_cont[v1]))
+        is_cont = is_cont.at[v2].set(jnp.where(v2_valid, True, is_cont[v2]))
+
+        return is_cont, None
+
+    is_contacting, _ = jax.lax.scan(
+        mark_contacting, is_contacting, jnp.arange(contact_vertex_pairs.shape[0])
+    )
+
+    def find_root(parent_array, vertex):
+        """Find root with path compression using fixed iterations.
+
+        Parameters
+        ----------
+        parent_array : jnp.ndarray
+            Current parent array.
+        vertex : int
+            Vertex index to find root for.
+
+        Returns
+        -------
+        root : int
+            Root vertex of the component.
+        """
+
+        # Fixed number of iterations for JIT compatibility
+        def compress_step(v, _):
+            """One step of path compression."""
+            return parent_array[v], None
+
+        root, _ = jax.lax.scan(compress_step, vertex, jnp.arange(max_iterations))
+        return root
+
+    def union_step(parent_array, _):
+        """Perform one iteration of union operations.
+
+        Parameters
+        ----------
+        parent_array : jnp.ndarray
+            Current parent array.
+        _ : Any
+            Unused iteration index.
+
+        Returns
+        -------
+        parent_array : jnp.ndarray
+            Updated parent array after unions.
+        _ : None
+            Unused output for scan compatibility.
+        """
+
+        def process_edge(p, idx):
+            """Process a single edge in the contact graph.
+
+            Parameters
+            ----------
+            p : jnp.ndarray
+                Current parent array.
+            idx : int
+                Index into contact arrays.
+
+            Returns
+            -------
+            p : jnp.ndarray
+                Updated parent array.
+            _ : None
+                Unused output for scan compatibility.
+            """
+            valid = contact_mask[idx]
+            v1 = contact_vertex_pairs[idx, 0]
+            v2 = contact_vertex_pairs[idx, 1]
+
+            # Find roots of both vertices
+            root1 = find_root(p, v1)
+            root2 = find_root(p, v2)
+
+            # Union by making root2's parent be root1
+            # Only update if this is a valid edge
+            should_update = valid & (root1 != root2)
+            p = p.at[root2].set(jnp.where(should_update, root1, p[root2]))
+
+            return p, None
+
+        # Process all edges once
+        new_parent, _ = jax.lax.scan(
+            process_edge, parent_array, jnp.arange(contact_vertex_pairs.shape[0])
+        )
+        return new_parent, None
+
+    # Run union-find for fixed number of iterations
+    parent, _ = jax.lax.scan(union_step, parent, jnp.arange(max_iterations))
+
+    # Final pass to ensure all vertices point to their root
+    def finalize_labels(idx):
+        """Get final root for each vertex.
+
+        Parameters
+        ----------
+        idx : int
+            Vertex index.
+
+        Returns
+        -------
+        label : int
+            Final component label for this vertex.
+        """
+        return find_root(parent, idx)
+
+    vertex_labels = jax.vmap(finalize_labels)(jnp.arange(n_total_vertices))
+
+    return vertex_labels, is_contacting

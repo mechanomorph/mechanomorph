@@ -1,7 +1,7 @@
 import jax.numpy as jnp
 import numpy as np
 
-from mechanomorph.jax.dcm.forces import find_contacting_vertices
+from mechanomorph.jax.dcm.forces import find_contacting_vertices, label_vertices
 from mechanomorph.jax.dcm.utils import pack_mesh_to_cells
 from mechanomorph.jax.utils.testing import (
     generate_two_cubes,
@@ -79,3 +79,43 @@ def test_find_contacting_vertices():
     np.testing.assert_allclose(
         np.zeros(len(valid_contact_pairs)), distances[contact_mask]
     )
+
+
+def test_label_vertices():
+    """Test the connected components labeling of contacts."""
+
+    n_total_vertices = 10
+    max_iterations = 5
+    contact_pairs = jnp.array(
+        [
+            [0, 5],
+            [1, 6],
+            [2, 6],
+            [-1, -1],  # Padding for invalid contact pair
+        ]
+    )
+    contact_mask = jnp.array([True, True, True, False])
+
+    vertex_labels, is_contacting = label_vertices(
+        contact_pairs, contact_mask, n_total_vertices, max_iterations
+    )
+
+    # check the results
+    assert vertex_labels.shape == (n_total_vertices,)
+    assert (
+        vertex_labels[0] == vertex_labels[5]
+    )  # 0 and 5 should be in the same component
+    assert (
+        vertex_labels[1] == vertex_labels[6]
+    )  # 1 and 6 should be in the same component
+    assert (
+        vertex_labels[2] == vertex_labels[6]
+    )  # 2 and 6 should be in the same component
+
+    n_expected_unique_labels = 7
+    assert len(jnp.unique(vertex_labels)) == n_expected_unique_labels
+
+    expected_is_contacting = jnp.array(
+        [True, True, True, False, False, True, True, False, False, False]
+    )
+    np.testing.assert_array_equal(is_contacting, expected_is_contacting)
