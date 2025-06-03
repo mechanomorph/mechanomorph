@@ -13,8 +13,6 @@ from mechanomorph.jax.utils.testing import (
     generate_two_cubes,
 )
 
-jax.config.update("jax_enable_x64", True)
-
 
 def test_compute_pressure_forces_vmap():
     """
@@ -166,6 +164,8 @@ def test_compute_pressure_forces_vmap():
     correct_pressure_forces = c1_pressure_force + c2_pressure_force
 
     # Make sure that the arrays are equal
-    np.testing.assert_array_almost_equal(
-        np.concatenate(per_cell_forces), correct_pressure_forces
+    np.testing.assert_allclose(
+        np.concatenate(per_cell_forces),
+        correct_pressure_forces,
+        rtol=1e-6,
     )
