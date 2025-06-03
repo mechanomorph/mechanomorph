@@ -1,7 +1,11 @@
 import jax.numpy as jnp
 import numpy as np
 
-from mechanomorph.jax.dcm.forces import find_contacting_vertices, label_vertices
+from mechanomorph.jax.dcm.forces import (
+    average_vector_by_label,
+    find_contacting_vertices,
+    label_vertices,
+)
 from mechanomorph.jax.dcm.utils import pack_mesh_to_cells
 from mechanomorph.jax.utils.testing import (
     generate_two_cubes,
@@ -119,3 +123,93 @@ def test_label_vertices():
         [True, True, True, False, False, True, True, False, False, False]
     )
     np.testing.assert_array_equal(is_contacting, expected_is_contacting)
+
+
+def test_average_3d_vector_by_label():
+    """Test averaging 3D vectors by label."""
+    vertex_vectors = jnp.array(
+        [
+            [
+                [0, 0, 0],
+                [1, 1, 1],
+                [-1, -1, -1],  # padding
+            ],
+            [
+                [10, 10, 10],
+                [0.5, 0.5, 0.5],
+                [-1, -1, -1],  # padding
+            ],
+        ]
+    )
+    vertex_mask = jnp.array([[True, True, False], [True, True, False]])
+    vertex_labels = jnp.array([1, 0, -1, 10, 1, -1])
+    max_components = vertex_vectors.shape[0] * vertex_vectors.shape[1]
+
+    averaged_vectors, was_averaged = average_vector_by_label(
+        vertex_vectors, vertex_mask, vertex_labels, max_components
+    )
+
+    # check the result
+    expected_vectors = jnp.array(
+        [
+            [
+                [0.25, 0.25, 0.25],
+                [1, 1, 1],
+                [-1, -1, -1],  # padding
+            ],
+            [
+                [10, 10, 10],
+                [0.25, 0.25, 0.25],
+                [-1, -1, -1],  # padding
+            ],
+        ]
+    )
+    np.testing.assert_allclose(averaged_vectors, expected_vectors)
+
+    expected_was_averaged = jnp.array([[True, False, False], [False, True, False]])
+    np.testing.assert_array_equal(was_averaged, expected_was_averaged)
+
+
+def test_average_4d_vector_by_label():
+    """Test averaging 3D vectors by label."""
+    vertex_vectors = jnp.array(
+        [
+            [
+                [0, 0, 0, 0],
+                [1, 1, 1, 0],
+                [-1, -1, -1, -1],  # padding
+            ],
+            [
+                [10, 10, 10, 0],
+                [0.5, 0.5, 0.5, 0],
+                [-1, -1, -1, -1],  # padding
+            ],
+        ]
+    )
+    vertex_mask = jnp.array([[True, True, False], [True, True, False]])
+    vertex_labels = jnp.array([1, 0, -1, 10, 1, -1])
+    max_components = vertex_vectors.shape[0] * vertex_vectors.shape[1]
+
+    averaged_vectors, was_averaged = average_vector_by_label(
+        vertex_vectors, vertex_mask, vertex_labels, max_components
+    )
+
+    # check the result
+    expected_vectors = jnp.array(
+        [
+            [
+                [0.25, 0.25, 0.25, 0],
+                [1, 1, 1, 0],
+                [-1, -1, -1, -1],  # padding
+            ],
+            [
+                [10, 10, 10, 0],
+                [0.25, 0.25, 0.25, 0],
+                [-1, -1, -1, -1],  # padding
+            ],
+        ]
+    )
+    np.testing.assert_allclose(averaged_vectors, expected_vectors)
+
+    expected_was_averaged = jnp.array([[True, False, False], [False, True, False]])
+    np.testing.assert_array_equal(was_averaged, expected_was_averaged)

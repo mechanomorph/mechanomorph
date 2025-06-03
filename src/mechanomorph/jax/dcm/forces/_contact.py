@@ -348,3 +348,139 @@ def label_vertices(
     vertex_labels = jax.vmap(finalize_labels)(jnp.arange(n_total_vertices))
 
     return vertex_labels, is_contacting
+
+
+def average_vector_by_label(
+    vertex_vectors: jnp.ndarray,
+    vertex_mask: jnp.ndarray,
+    vertex_labels: jnp.ndarray,
+    max_components: int = 1000,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Average vector values for vertices with the same label.
+
+    Parameters
+    ----------
+    vertex_vectors : jnp.ndarray
+        Array of shape (n_cells, max_vertices_per_cell, vector_dim) containing
+        vector data to average (e.g., positions, velocities).
+    vertex_mask : jnp.ndarray
+        Boolean array of shape (n_cells, max_vertices_per_cell) indicating
+        which vertices are valid.
+    vertex_labels : jnp.ndarray
+        Array of shape (n_total_vertices,) containing component labels
+        from label_vertices function.
+    max_components : int
+        Maximum expected number of components. This is a compile-time
+        constant for JIT compatibility.
+
+    Returns
+    -------
+    averaged_vectors : jnp.ndarray
+        Array of shape (n_cells, max_vertices_per_cell, vector_dim) with
+        averaged vectors for vertices in the same component.
+    was_averaged : jnp.ndarray
+        Boolean array of shape (n_cells, max_vertices_per_cell) indicating
+        which vertices had their vectors averaged (i.e., were part of a
+        multi-vertex component).
+    """
+    n_cells, max_vertices_per_cell, vector_dim = vertex_vectors.shape
+    n_total_vertices = n_cells * max_vertices_per_cell
+
+    # Flatten vertex data for easier processing
+    flat_vectors = vertex_vectors.reshape(n_total_vertices, vector_dim)
+    flat_mask = vertex_mask.ravel()
+
+    # Compute component sums and counts
+    # We use segment_sum which requires sorted indices, but we'll work around this
+    # by using a fixed-size accumulator array
+    component_sums = jnp.zeros((max_components, vector_dim))
+    component_counts = jnp.zeros(max_components)
+
+    def accumulate_vertex(carry, vertex_idx):
+        """Accumulate vector and count for one vertex.
+
+        Parameters
+        ----------
+        carry : Tuple[jnp.ndarray, jnp.ndarray]
+            Current (component_sums, component_counts).
+        vertex_idx : int
+            Global vertex index.
+
+        Returns
+        -------
+        carry : Tuple[jnp.ndarray, jnp.ndarray]
+            Updated sums and counts.
+        _ : None
+            Unused output for scan compatibility.
+        """
+        sums, counts = carry
+
+        # Only process if vertex is valid
+        is_valid = flat_mask[vertex_idx]
+        label = vertex_labels[vertex_idx]
+        vector = flat_vectors[vertex_idx]
+
+        # Clip label to ensure it's within bounds
+        safe_label = jnp.clip(label, 0, max_components - 1)
+
+        # Update sums and counts conditionally
+        sums = sums.at[safe_label].add(
+            jnp.where(is_valid, vector, jnp.zeros(vector_dim))
+        )
+        counts = counts.at[safe_label].add(jnp.where(is_valid, 1.0, 0.0))
+
+        return (sums, counts), None
+
+    # Accumulate all vertices
+    (component_sums, component_counts), _ = jax.lax.scan(
+        accumulate_vertex,
+        (component_sums, component_counts),
+        jnp.arange(n_total_vertices),
+    )
+
+    # Compute averages, avoiding division by zero
+    safe_counts = jnp.maximum(component_counts, 1.0)
+    component_averages = component_sums / safe_counts[:, None]
+
+    # Map averages back to vertices
+    def get_averaged_vector(vertex_idx):
+        """Get averaged vector for a vertex.
+
+        Parameters
+        ----------
+        vertex_idx : int
+            Global vertex index.
+
+        Returns
+        -------
+        averaged : jnp.ndarray
+            Averaged vector for this vertex's component.
+        multi_vertex : bool
+            Whether this vertex is part of a multi-vertex component.
+        """
+        label = vertex_labels[vertex_idx]
+        safe_label = jnp.clip(label, 0, max_components - 1)
+        count = component_counts[safe_label]
+
+        # Check if this is part of a multi-vertex component
+        is_multi = count > 1.5  # Use 1.5 to avoid floating point issues
+
+        # Get averaged vector or keep original
+        averaged = jnp.where(
+            is_multi & flat_mask[vertex_idx],
+            component_averages[safe_label],
+            flat_vectors[vertex_idx],
+        )
+
+        return averaged, is_multi & flat_mask[vertex_idx]
+
+    # Apply averaging to all vertices
+    averaged_flat, was_averaged_flat = jax.vmap(get_averaged_vector)(
+        jnp.arange(n_total_vertices)
+    )
+
+    # Reshape back to original shape
+    averaged_vectors = averaged_flat.reshape(n_cells, max_vertices_per_cell, vector_dim)
+    was_averaged = was_averaged_flat.reshape(n_cells, max_vertices_per_cell)
+
+    return averaged_vectors, was_averaged
