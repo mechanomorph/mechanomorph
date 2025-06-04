@@ -1,3 +1,4 @@
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -344,3 +345,103 @@ def test_edge_splitting_single_cell_shared_edge():
     # check that two faces were added
     valid_new_faces = new_faces[new_face_mask]
     assert valid_new_faces.shape == (4, 3)
+
+
+def test_edge_splitting_jit_vmap():
+    """Test edge splitting batching across cells with JIT."""
+    vertices_packed = jnp.array(
+        [
+            [
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [-1.0, -1.0, -1.0],  # padding
+                [-1.0, -1.0, -1.0],  # padding
+            ],
+            [
+                [0.0, 0.0, 0.0],
+                [0.5, 0.0, 0.0],
+                [0.0, 0.5, 0.0],
+                [-1.0, -1.0, -1.0],  # padding
+                [-1.0, -1.0, -1.0],  # padding
+            ],
+        ]
+    )
+    faces_packed = jnp.array(
+        [
+            [
+                [0, 1, 2],
+                [-1, -1, -1],  # padding
+                [-1, -1, -1],  # padding
+            ],
+            [
+                [0, 1, 2],
+                [-1, -1, -1],  # padding
+                [-1, -1, -1],  # padding
+            ],
+        ]
+    )
+    vertices_valid_mask = jnp.array(
+        [[True, True, True, False, False], [True, True, True, False, False]]
+    )
+    face_valid_mask = jnp.array([[True, False, False], [True, False, False]])
+
+    # make the jit and batched function
+    batched_edge_split = jax.vmap(
+        remesh_edge_split_single_cell,
+        in_axes=(0, 0, 0, 0, None),
+        out_axes=(0, 0, 0, 0, 0),
+    )
+    jit_batched_edge_split = jax.jit(batched_edge_split)
+
+    # perform the edge splitting
+    edge_length_threshold = 1.1
+    new_vertices, new_faces, new_vertex_mask, new_face_mask, overflow = (
+        jit_batched_edge_split(
+            vertices_packed,
+            faces_packed,
+            vertices_valid_mask,
+            face_valid_mask,
+            edge_length_threshold,
+        )
+    )
+
+    # there shouldn't be overflow
+
+    assert not np.any(overflow)
+
+    # check the vertices
+    assert new_vertices.shape == vertices_packed.shape
+    expected_vertices_0 = jnp.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.5, 0.5, 0.0],
+        ]
+    )
+    np.testing.assert_allclose(new_vertices[0][new_vertex_mask[0]], expected_vertices_0)
+    expected_vertices_1 = jnp.array(
+        [
+            [0.0, 0.0, 0.0],
+            [0.5, 0.0, 0.0],
+            [0.0, 0.5, 0.0],
+        ]
+    )
+    np.testing.assert_allclose(new_vertices[1][new_vertex_mask[1]], expected_vertices_1)
+
+    # check the faces
+    assert new_faces.shape == faces_packed.shape
+    expected_faces_0 = jnp.array(
+        [
+            [0, 1, 3],
+            [0, 3, 2],
+        ]
+    )
+    np.testing.assert_allclose(new_faces[0][new_face_mask[0]], expected_faces_0)
+    expected_faces_1 = jnp.array(
+        [
+            [0, 1, 2],
+        ]
+    )
+    np.testing.assert_allclose(new_faces[1][new_face_mask[1]], expected_faces_1)
