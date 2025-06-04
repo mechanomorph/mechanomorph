@@ -1,0 +1,20 @@
+site_name: My Docs
+
+nav:
+- Home: index.md
+- Explanations:
+    - Mesh format: ./explanations/mesh_format.md
+    - Constructing a model: ./explanations/building_deformable_cell_model.md
+
+
+theme:
+  name: material
+  features:
+  - search.highlight
+  - search.suggest
+  - content.code.copy
+  - content.code.annotate
+  # - navigation.indexes
+  # - navigation.footer
+  # - navigation.sections
+  - toc.follow
