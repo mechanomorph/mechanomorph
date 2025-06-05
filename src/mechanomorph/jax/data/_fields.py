@@ -139,7 +139,6 @@ def sample_vector_field_nearest(
     origin: JaxArray,
     scale: JaxArray,
     cval: float = 0.0,
-    vectors_last: bool = True,
 ) -> JaxArray:
     """Sample vectors from a 3D vector field using nearest neighbor interpolation.
 
@@ -152,9 +151,7 @@ def sample_vector_field_nearest(
         Array of shape (n_coordinates,) containing boolean values indicating
         which coordinates are valid (True) vs padding (False).
     field : JaxArray
-        Vector field array. Shape depends on vectors_last parameter:
-        - If vectors_last=True: (shape_x, shape_y, shape_z, 3)
-        - If vectors_last=False: (3, shape_x, shape_y, shape_z)
+        (3, shape_x, shape_y, shape_z) Vector field array.
     origin : JaxArray, optional
         Array of shape (3,) specifying the origin of the field coordinate system.
     scale : JaxArray, optional
@@ -162,10 +159,6 @@ def sample_vector_field_nearest(
     cval : float, optional
         Constant value to use for invalid coordinates or coordinates outside
         field bounds. Default is 0.0.
-    vectors_last : bool, optional
-        Whether vectors are stored in the last dimension. If True, field shape
-        is (shape_x, shape_y, shape_z, 3). If False, field shape is
-        (3, shape_x, shape_y, shape_z). Default is True.
 
     Returns
     -------
@@ -176,17 +169,7 @@ def sample_vector_field_nearest(
     # Transform coordinates to field coordinate system
     field_coords = (coordinates - origin) / scale
 
-    # Handle different vector storage formats using lax.cond for JIT compatibility
-    processed_field = jax.lax.cond(
-        vectors_last,
-        lambda f: f,  # Field shape: (shape_x, shape_y, shape_z, 3)
-        lambda f: jnp.transpose(
-            f, (1, 2, 3, 0)
-        ),  # Transpose (3, x, y, z) -> (x, y, z, 3)
-        field,
-    )
-
-    spatial_shape = jnp.array(processed_field.shape[:3])
+    spatial_shape = jnp.array(field.shape[1:4])
 
     # Vectorize over all coordinates
     def _sample_single_coord(coord: JaxArray, is_valid: JaxArray) -> JaxArray:
@@ -205,9 +188,9 @@ def sample_vector_field_nearest(
             Sampled vector or cval-filled vector if invalid.
         """
         sampled_vector = _sample_vector_nearest_neighbor(
-            coord, processed_field, spatial_shape, cval
+            coord, field, spatial_shape, cval
         )
-        invalid_vector = jnp.full(processed_field.shape[-1], cval)
+        invalid_vector = jnp.full(field.shape[0], cval)
         return jax.lax.cond(is_valid, lambda: sampled_vector, lambda: invalid_vector)
 
     vectorized_sample = jax.vmap(_sample_single_coord)
@@ -221,7 +204,6 @@ def sample_vector_field_linear(
     origin: JaxArray,
     scale: JaxArray,
     cval: float = 0.0,
-    vectors_last: bool = True,
 ) -> JaxArray:
     """Sample vectors from a 3D vector field using trilinear interpolation.
 
@@ -234,9 +216,7 @@ def sample_vector_field_linear(
         Array of shape (n_coordinates,) containing boolean values indicating
         which coordinates are valid (True) vs padding (False).
     field : JaxArray
-        Vector field array. Shape depends on vectors_last parameter:
-        - If vectors_last=True: (shape_x, shape_y, shape_z, 3)
-        - If vectors_last=False: (3, shape_x, shape_y, shape_z)
+        Vector field array with shape (3, shape_x, shape_y, shape_z)
     origin : JaxArray, optional
         Array of shape (3,) specifying the origin of the field coordinate system.
     scale : JaxArray, optional
@@ -244,10 +224,6 @@ def sample_vector_field_linear(
     cval : float, optional
         Constant value to use for invalid coordinates or coordinates outside
         field bounds. Default is 0.0.
-    vectors_last : bool, optional
-        Whether vectors are stored in the last dimension. If True, field shape
-        is (shape_x, shape_y, shape_z, 3). If False, field shape is
-        (3, shape_x, shape_y, shape_z). Default is True.
 
     Returns
     -------
@@ -258,17 +234,7 @@ def sample_vector_field_linear(
     # Transform coordinates to field coordinate system
     field_coords = (coordinates - origin) / scale
 
-    # Handle different vector storage formats using lax.cond for JIT compatibility
-    processed_field = jax.lax.cond(
-        vectors_last,
-        lambda f: f,  # Field shape: (shape_x, shape_y, shape_z, 3)
-        lambda f: jnp.transpose(
-            f, (1, 2, 3, 0)
-        ),  # Transpose (3, x, y, z) -> (x, y, z, 3)
-        field,
-    )
-
-    spatial_shape = jnp.array(processed_field.shape[:3])
+    spatial_shape = jnp.array(field.shape[1:4])
 
     # Vectorize over all coordinates
     def _sample_single_coord(coord: JaxArray, is_valid: JaxArray) -> JaxArray:
@@ -286,10 +252,8 @@ def sample_vector_field_linear(
         JaxArray
             Sampled vector or cval-filled vector if invalid.
         """
-        sampled_vector = _sample_vector_linear(
-            coord, processed_field, spatial_shape, cval
-        )
-        invalid_vector = jnp.full(processed_field.shape[-1], cval)
+        sampled_vector = _sample_vector_linear(coord, field, spatial_shape, cval)
+        invalid_vector = jnp.full(field.shape[0], cval)
         return jax.lax.cond(is_valid, lambda: sampled_vector, lambda: invalid_vector)
 
     vectorized_sample = jax.vmap(_sample_single_coord)
@@ -448,13 +412,13 @@ def _sample_vector_nearest_neighbor(
     indices = jnp.round(coord).astype(jnp.int32)
 
     # Check if coordinates are within bounds
-    in_bounds = jnp.all((indices >= 0) & (indices < spatial_shape))
+    in_bounds = jnp.all((indices >= 0) & jnp.all(indices < spatial_shape))
 
     # Get vector with constant boundary handling
     return jax.lax.cond(
         in_bounds,
-        lambda: field[indices[0], indices[1], indices[2]],
-        lambda: jnp.full(field.shape[-1], cval),
+        lambda: field[:, indices[0], indices[1], indices[2]],
+        lambda: jnp.full(field.shape[0], cval),
     )
 
 
@@ -519,8 +483,8 @@ def _sample_vector_linear(
 
         return jax.lax.cond(
             in_bounds,
-            lambda: field[corner_indices[0], corner_indices[1], corner_indices[2]],
-            lambda: jnp.full(field.shape[-1], cval),
+            lambda: field[:, corner_indices[0], corner_indices[1], corner_indices[2]],
+            lambda: jnp.full(field.shape[0], cval),
         )
 
     # Get vectors at all 8 corners
