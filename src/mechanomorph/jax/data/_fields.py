@@ -27,10 +27,8 @@ def sample_scalar_field_nearest(
         Array of shape (shape_x, shape_y, shape_z) containing the scalar field values.
     origin : JaxArray, optional
         Array of shape (3,) specifying the origin of the field coordinate system.
-        Default is [0.0, 0.0, 0.0].
     scale : JaxArray, optional
         Array of shape (3,) specifying the scale (voxel size) of the field.
-        Default is [1.0, 1.0, 1.0].
     cval : float, optional
         Constant value to use for invalid coordinates or coordinates outside
         field bounds. Default is 0.0.
@@ -63,8 +61,7 @@ def sample_scalar_field_nearest(
         JaxArray
             Sampled value or cval if invalid.
         """
-        sampled_value = _sample_scalar_nearest_neighbor(coord, field, field_shape, cval)
-        return jax.lax.cond(is_valid, lambda: sampled_value, lambda: cval)
+        return _sample_scalar_nearest_neighbor(coord, field, field_shape, cval)
 
     vectorized_sample = jax.vmap(_sample_single_coord)
     return vectorized_sample(field_coords, valid_coordinates)
@@ -327,7 +324,7 @@ def _sample_scalar_nearest_neighbor(
     indices = jnp.round(coord).astype(jnp.int32)
 
     # Check if coordinates are within bounds
-    in_bounds = jnp.all((indices >= 0) & (indices < field_shape))
+    in_bounds = jnp.all((indices >= 0) & jnp.all(indices < field_shape))
 
     # Get value with constant boundary handling
     return jax.lax.cond(
@@ -391,7 +388,9 @@ def _sample_scalar_linear(
             The field value at the corner with boundary handling.
         """
         corner_indices = lower_indices + offset
-        in_bounds = jnp.all((corner_indices >= 0) & (corner_indices < field_shape))
+        in_bounds = jnp.all(
+            (corner_indices >= 0) & jnp.all(corner_indices < field_shape)
+        )
 
         return jax.lax.cond(
             in_bounds,
