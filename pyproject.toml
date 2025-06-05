@@ -42,6 +42,7 @@ dependencies = [
     "matplotlib",
     "networkx",
     "numpy",
+    "optax>=0.1.8",
     "pandas",
     "pyacvd>=0.2.11",
     "scikit-image",
