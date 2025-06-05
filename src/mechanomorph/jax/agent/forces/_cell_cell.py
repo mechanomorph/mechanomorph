@@ -1,5 +1,6 @@
+import jax
 import jax.numpy as jnp
-from jax import array as JaxArray
+from jax import Array as JaxArray
 
 
 def vectors_distances_between_agents(
@@ -31,7 +32,7 @@ def vectors_distances_between_agents(
     valid_pairs = valid_positions_mask[:, None] & valid_positions_mask[None, :]
 
     # Compute vectors between all positions
-    vectors = positions[:, None, :] - positions[None, :, :]
+    vectors = positions[None, :, :] - positions[:, None, :]
 
     # Compute distances
     distances = jnp.linalg.norm(vectors, axis=2)
@@ -87,6 +88,8 @@ def cell_cell_adhesion_potential(
     distances, vectors = vectors_distances_between_agents(
         positions, valid_positions_mask
     )
+
+    jax.debug.print("Vector 0,1 {vectors}", vectors=vectors[0, 1, :])
 
     # Compute maximum interaction distance for each pair
     maximum_interaction_distance = (
