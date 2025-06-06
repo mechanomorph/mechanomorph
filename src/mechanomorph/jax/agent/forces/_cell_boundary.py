@@ -27,23 +27,9 @@ def cell_boundary_adhesion_potential(
         Array of shape (n_agents,) containing the interaction radius of each agent.
     adhesion_strength : JaxArray
         Array of shape (n_agents,) containing the adhesion strength of each agent.
-    distance_field : JaxArray
-        Array of shape (shape_x, shape_y, shape_z) containing the distance
-        scalar field of the boundary.
-    normals_field : JaxArray
-        Array of shape (shape_x, shape_y, shape_z, 3) containing the vector
-        field of the normals of the boundary. This should be computed as the
-        gradient of the distance field. All vectors must be unit vectors.
-    origin : JaxArray
-        Array of shape (3,) specifying the origin of the field coordinate system.
-    scale : JaxArray
-        Array of shape (3,) specifying the scale (voxel size) of the field.
     power : float, optional
         The exponent of the adhesion potential. Note the computed exponent is
         power + 1. Default value is 1.0.
-    cval : float, optional
-        Constant value to use for coordinates outside field bounds.
-        Default is 0.0.
 
     Returns
     -------
