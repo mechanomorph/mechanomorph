@@ -145,15 +145,12 @@ def test_sample_vector_field_linear():
             [3.0, 3.0, 3.0],  # maps to (1.0, 1.0, 1.0) — corner
             [2.0, 2.0, 2.0],  # maps to (0.5, 0.5, 0.5) — center
             [-10.0, -10.0, -10.0],  # out-of-bounds
-            [3.0, 3.0, 3.0],  # valid location but marked invalid
+            [30.0, 30.0, 30.0],  # out of bounds
         ]
     )
-    valid_coordinates = jnp.array([True, True, True, False])
 
     # Perform the sampling
-    result = sample_vector_field_linear(
-        coordinates, valid_coordinates, field, origin, scale, cval
-    )
+    result = sample_vector_field_linear(coordinates, field, origin, scale, cval)
 
     # Compute expected result for center interpolation
     corner_vectors = jnp.array(
