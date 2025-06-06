@@ -457,6 +457,7 @@ if __name__ == "__main__":
         )
     )
 
+    rng_keys = jax.random.split(jax.random.key(42), num=n_time_steps)
     for time_step_index in trange(int(n_time_steps)):
         # get the adhesion strengths for the current locations
         cell_adhesion_strength = sample_cell_adhesion_strength(positions)
@@ -484,7 +485,7 @@ if __name__ == "__main__":
             boundary_normal_vectors=boundary_normal_vectors,
             previous_locomotion_direction=locomotion_direction,
             locomotion_speed=locomotion_speed,
-            rng_key=jax.random.PRNGKey(0),
+            rng_key=rng_keys[time_step_index],
         )
         positions = positions + forces * (time_step / damping_coefficient)
 
