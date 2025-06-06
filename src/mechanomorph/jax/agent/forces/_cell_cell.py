@@ -1,4 +1,3 @@
-import jax
 import jax.numpy as jnp
 from jax import Array as JaxArray
 
@@ -55,7 +54,7 @@ def cell_cell_adhesion_potential(
     positions: jnp.ndarray,
     interaction_radii: jnp.ndarray,
     adhesion_strength: jnp.ndarray,
-    valid_positions_mask: jnp.ndarray,
+    valid_agents_mask: jnp.ndarray,
     power: float = 1.0,
 ) -> jnp.ndarray:
     """Compute an adhesion force with a potential function.
@@ -72,7 +71,7 @@ def cell_cell_adhesion_potential(
     adhesion_strength : jnp.ndarray
         The padded adhesion strength. Must be broadcastable
         to (max_agents, max_agents).
-    valid_positions_mask : jnp.ndarray
+    valid_agents_mask : jnp.ndarray
         (max_agents,) boolean array indicating which positions are valid.
     power : float
         The power of the potential function.
@@ -85,11 +84,7 @@ def cell_cell_adhesion_potential(
         (max_agents, 3) array of the cell-cell adhesion
         force vector for each agent. Invalid agents have zero force.
     """
-    distances, vectors = vectors_distances_between_agents(
-        positions, valid_positions_mask
-    )
-
-    jax.debug.print("Vector 0,1 {vectors}", vectors=vectors[0, 1, :])
+    distances, vectors = vectors_distances_between_agents(positions, valid_agents_mask)
 
     # Compute maximum interaction distance for each pair
     maximum_interaction_distance = (
@@ -114,7 +109,7 @@ def cell_cell_adhesion_potential(
     )
 
     # Apply validity mask
-    valid_pairs = valid_positions_mask[:, None] & valid_positions_mask[None, :]
+    valid_pairs = valid_agents_mask[:, None] & valid_agents_mask[None, :]
     force_magnitude = jnp.where(valid_pairs, force_magnitude, 0.0)
 
     # Compute force vectors
@@ -124,7 +119,7 @@ def cell_cell_adhesion_potential(
     total_forces = jnp.sum(forces, axis=1)
 
     # Mask out invalid agents
-    total_forces = jnp.where(valid_positions_mask[:, None], total_forces, 0.0)
+    total_forces = jnp.where(valid_agents_mask[:, None], total_forces, 0.0)
 
     return total_forces
 
@@ -133,7 +128,7 @@ def cell_cell_repulsion_potential(
     positions: JaxArray,
     interaction_radii: JaxArray,
     repulsion_strength: JaxArray,
-    valid_positions_mask: JaxArray,
+    valid_agents_mask: JaxArray,
     power: float = 1.0,
 ) -> JaxArray:
     """Compute a repulsion force with a potential function.
@@ -150,7 +145,7 @@ def cell_cell_repulsion_potential(
     repulsion_strength : JaxArray
         The padded repulsion strength. Must be broadcastable
         to (max_agents, max_agents).
-    valid_positions_mask : JaxArray
+    valid_agents_mask : JaxArray
         (max_agents,) boolean array indicating which positions are valid.
     power : float
         The power of the potential function.
@@ -163,9 +158,7 @@ def cell_cell_repulsion_potential(
         (max_agents, 3) array of the cell-cell repulsion
         force vector for each agent. Invalid agents have zero force.
     """
-    distances, vectors = vectors_distances_between_agents(
-        positions, valid_positions_mask
-    )
+    distances, vectors = vectors_distances_between_agents(positions, valid_agents_mask)
 
     # Compute maximum interaction distance for each pair
     maximum_interaction_distance = (
@@ -192,7 +185,7 @@ def cell_cell_repulsion_potential(
     )
 
     # Apply validity mask
-    valid_pairs = valid_positions_mask[:, None] & valid_positions_mask[None, :]
+    valid_pairs = valid_agents_mask[:, None] & valid_agents_mask[None, :]
     force_magnitude = jnp.where(valid_pairs, force_magnitude, 0.0)
 
     # Compute force vectors
@@ -202,6 +195,6 @@ def cell_cell_repulsion_potential(
     total_forces = jnp.sum(forces, axis=1)
 
     # Mask out invalid agents
-    total_forces = jnp.where(valid_positions_mask[:, None], total_forces, 0.0)
+    total_forces = jnp.where(valid_agents_mask[:, None], total_forces, 0.0)
 
     return total_forces

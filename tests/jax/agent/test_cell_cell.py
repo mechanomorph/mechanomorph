@@ -28,7 +28,7 @@ def test_cell_cell_adhesion_potential():
         positions=positions,
         interaction_radii=interaction_radii,
         adhesion_strength=adhesion_strength,
-        valid_positions_mask=valid_positions_mask,
+        valid_agents_mask=valid_positions_mask,
         power=0.0,
     )
 
@@ -80,7 +80,7 @@ def test_cell_cell_repulsion_potential():
         positions=positions,
         interaction_radii=interaction_radii,
         repulsion_strength=repulsion_strength,
-        valid_positions_mask=valid_positions_mask,
+        valid_agents_mask=valid_positions_mask,
         power=0.0,
     )
 
