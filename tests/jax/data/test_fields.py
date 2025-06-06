@@ -32,18 +32,15 @@ def test_sample_scalar_field_nearest():
         ]
     )
 
-    valid_coordinates = jnp.array([True, True, True, True, True])
-
     cval = -1.0
-    result = sample_scalar_field_nearest(
-        coordinates, valid_coordinates, field, origin, scale, cval
-    )
+    result = sample_scalar_field_nearest(coordinates, field, origin, scale, cval)
 
     # Expected sampled values:
     # field[0,0,0] = 0
     # field[1,1,1] = 13
     # out of bounds = cval
-    # invalid = cval
+    # out of bounds = cval
+    # out of bounds = cval
     expected = jnp.array([0.0, 13.0, cval, cval, cval])
 
     np.testing.assert_allclose(result, expected)
@@ -68,17 +65,13 @@ def test_sample_scalar_field_linear():
         ]
     )
 
-    valid_coordinates = jnp.array([True, True, True, True])
-
-    result = sample_scalar_field_linear(
-        coordinates, valid_coordinates, field, origin, scale, cval
-    )
+    result = sample_scalar_field_linear(coordinates, field, origin, scale, cval)
 
     # Expected:
     # (1.0, 1.0, 1.0) -> voxel center: no interpolation, value = field[1,1,1] = 13
     # (0.0, 0.0, 0.0) -> no interpolation, value = field[0,0,0] = 0
     # out of bounds -> cval
-    # invalid -> cval
+    # out of bounds -> cval
     expected = jnp.array([13.0, 0.0, cval, cval])
     np.testing.assert_allclose(result, expected)
 
@@ -110,11 +103,9 @@ def test_sample_vector_field_nearest():
         ]
     )
 
-    valid_coordinates = jnp.array([True, True, True, False])
-
     # perform the sampling
     result_first = sample_vector_field_nearest(
-        coordinates, valid_coordinates, field_first, origin, scale, cval
+        coordinates, field_first, origin, scale, cval
     )
 
     # Calculate the expected results

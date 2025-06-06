@@ -1,508 +1,294 @@
-"""Functions to sample fields at specified positions."""
-
-import jax
+import jax.numpy as jnp
 from jax import Array as JaxArray
-from jax import numpy as jnp
-
-
-def sample_scalar_field_nearest(
-    coordinates: JaxArray,
-    valid_coordinates: JaxArray,
-    field: JaxArray,
-    origin: JaxArray,
-    scale: JaxArray,
-    cval: float = 0.0,
-) -> JaxArray:
-    """Sample values from a 3D scalar field using nearest neighbor interpolation.
-
-    Parameters
-    ----------
-    coordinates : JaxArray
-        Array of shape (n_coordinates, 3) containing the 3D coordinates
-        at which to sample the field. May be padded with invalid entries.
-    valid_coordinates : JaxArray
-        Array of shape (n_coordinates,) containing boolean values indicating
-        which coordinates are valid (True) vs padding (False).
-    field : JaxArray
-        Array of shape (shape_x, shape_y, shape_z) containing the scalar field values.
-    origin : JaxArray, optional
-        Array of shape (3,) specifying the origin of the field coordinate system.
-    scale : JaxArray, optional
-        Array of shape (3,) specifying the scale (voxel size) of the field.
-    cval : float, optional
-        Constant value to use for invalid coordinates or coordinates outside
-        field bounds. Default is 0.0.
-
-    Returns
-    -------
-    JaxArray
-        Array of shape (n_coordinates,) containing the sampled field values.
-        Invalid coordinates will have value `cval`.
-    """
-    # Transform coordinates to field coordinate system
-    field_coords = (coordinates - origin) / scale
-
-    # Get field shape as array for JIT compatibility
-    field_shape = jnp.array(field.shape)
-
-    # Vectorize over all coordinates
-    def _sample_single_coord(coord: JaxArray, is_valid: JaxArray) -> JaxArray:
-        """Sample a single coordinate with validity check.
-
-        Parameters
-        ----------
-        coord : JaxArray
-            Single coordinate of shape (3,).
-        is_valid : JaxArray
-            Boolean indicating if this coordinate is valid.
-
-        Returns
-        -------
-        JaxArray
-            Sampled value or cval if invalid.
-        """
-        return _sample_scalar_nearest_neighbor(coord, field, field_shape, cval)
-
-    vectorized_sample = jax.vmap(_sample_single_coord)
-    return vectorized_sample(field_coords, valid_coordinates)
 
 
 def sample_scalar_field_linear(
-    coordinates: JaxArray,
-    valid_coordinates: JaxArray,
-    field: JaxArray,
-    origin: JaxArray,
-    scale: JaxArray,
-    cval: float = 0.0,
+    coordinates: JaxArray, field: JaxArray, origin: JaxArray, scale: JaxArray, cval=0.0
 ) -> JaxArray:
-    """Sample values from a 3D scalar field using trilinear interpolation.
+    """
+    Performs sampling with linear interpolation on a 3D scalar field.
 
     Parameters
     ----------
     coordinates : JaxArray
-        Array of shape (n_coordinates, 3) containing the 3D coordinates
-        at which to sample the field. May be padded with invalid entries.
-    valid_coordinates : JaxArray
-        Array of shape (n_coordinates,) containing boolean values indicating
-        which coordinates are valid (True) vs padding (False).
+        (N, 3) array of float coordinates to sample at.
     field : JaxArray
-        Array of shape (shape_x, shape_y, shape_z) containing the scalar field values.
-    origin : JaxArray, optional
-        Array of shape (3,) specifying the origin of the field coordinate system.
-        Default is [0.0, 0.0, 0.0].
-    scale : JaxArray, optional
-        Array of shape (3,) specifying the scale (voxel size) of the field.
-        Default is [1.0, 1.0, 1.0].
-    cval : float, optional
-        Constant value to use for invalid coordinates or coordinates outside
-        field bounds. Default is 0.0.
+        (D, H, W) array representing the 3D scalar field.
+    origin : JaxArray
+        (3,) array representing the origin of the field.
+    scale : JaxArray
+        (3,) array representing the scale of the field.
+    cval : float
+        Constant value for coordinates outside the field.
 
     Returns
     -------
-    JaxArray
-        Array of shape (n_coordinates,) containing the sampled field values.
-        Invalid coordinates will have value `cval`.
+    values : JaxArray
+        (n_coords,) array of interpolated scalar values.
     """
-    # Transform coordinates to field coordinate system
-    field_coords = (coordinates - origin) / scale
+    D, H, W = field.shape
 
-    # Get field shape as array for JIT compatibility
-    field_shape = jnp.array(field.shape)
+    coordinates = (coordinates - origin) / scale
 
-    # Vectorize over all coordinates
-    def _sample_single_coord(coord: JaxArray, is_valid: JaxArray) -> JaxArray:
-        """Sample a single coordinate with validity check.
+    # Split coordinates
+    z, y, x = coordinates[:, 0], coordinates[:, 1], coordinates[:, 2]
 
-        Parameters
-        ----------
-        coord : JaxArray
-            Single coordinate of shape (3,).
-        is_valid : JaxArray
-            Boolean indicating if this coordinate is valid.
+    # Floor and ceil indices
+    z0 = jnp.floor(z).astype(jnp.int32)
+    y0 = jnp.floor(y).astype(jnp.int32)
+    x0 = jnp.floor(x).astype(jnp.int32)
 
-        Returns
-        -------
-        JaxArray
-            Sampled value or cval if invalid.
-        """
-        sampled_value = _sample_scalar_linear(coord, field, field_shape, cval)
-        return jax.lax.cond(is_valid, lambda: sampled_value, lambda: cval)
+    z1 = z0 + 1
+    y1 = y0 + 1
+    x1 = x0 + 1
 
-    vectorized_sample = jax.vmap(_sample_single_coord)
-    return vectorized_sample(field_coords, valid_coordinates)
+    # Weights for interpolation
+    dz = z - z0
+    dy = y - y0
+    dx = x - x0
+
+    wz0, wy0, wx0 = 1.0 - dz, 1.0 - dy, 1.0 - dx
+    wz1, wy1, wx1 = dz, dy, dx
+
+    # Prepare all 8 corners
+    def get_vals(z_idx, y_idx, x_idx):
+        # Check bounds
+        in_bounds = (
+            (z_idx >= 0)
+            & (z_idx < D)
+            & (y_idx >= 0)
+            & (y_idx < H)
+            & (x_idx >= 0)
+            & (x_idx < W)
+        )
+        z_idx = jnp.clip(z_idx, 0, D - 1)
+        y_idx = jnp.clip(y_idx, 0, H - 1)
+        x_idx = jnp.clip(x_idx, 0, W - 1)
+        vals = field[z_idx, y_idx, x_idx]
+        return jnp.where(in_bounds, vals, cval)
+
+    c000 = get_vals(z0, y0, x0)
+    c001 = get_vals(z0, y0, x1)
+    c010 = get_vals(z0, y1, x0)
+    c011 = get_vals(z0, y1, x1)
+    c100 = get_vals(z1, y0, x0)
+    c101 = get_vals(z1, y0, x1)
+    c110 = get_vals(z1, y1, x0)
+    c111 = get_vals(z1, y1, x1)
+
+    # Combine with weights
+    interp = (
+        c000 * wz0 * wy0 * wx0
+        + c001 * wz0 * wy0 * wx1
+        + c010 * wz0 * wy1 * wx0
+        + c011 * wz0 * wy1 * wx1
+        + c100 * wz1 * wy0 * wx0
+        + c101 * wz1 * wy0 * wx1
+        + c110 * wz1 * wy1 * wx0
+        + c111 * wz1 * wy1 * wx1
+    )
+
+    return interp
+
+
+def sample_scalar_field_nearest(
+    coordinates: JaxArray, field: JaxArray, origin: JaxArray, scale: JaxArray, cval=0.0
+) -> JaxArray:
+    """
+    Performs fused nearest-neighbor sampling on a 3D scalar field.
+
+    Args:
+        field: (D, H, W) array representing the 3D scalar field.
+        coordinates: (N, 3) array of float coordinates to sample at.
+        cval: Constant value for coordinates outside the field.
+
+    Returns
+    -------
+        (N,) array of sampled scalar values.
+    """
+    D, H, W = field.shape
+
+    # apply the transform to the coordinates
+    coordinates = (coordinates - origin) / scale
+
+    z, y, x = coordinates[:, 0], coordinates[:, 1], coordinates[:, 2]
+
+    # Round to nearest integer index
+    z_idx = jnp.round(z).astype(jnp.int32)
+    y_idx = jnp.round(y).astype(jnp.int32)
+    x_idx = jnp.round(x).astype(jnp.int32)
+
+    # Check bounds
+    in_bounds = (
+        (z_idx >= 0)
+        & (z_idx < D)
+        & (y_idx >= 0)
+        & (y_idx < H)
+        & (x_idx >= 0)
+        & (x_idx < W)
+    )
+
+    # Clamp indices to valid range
+    z_idx = jnp.clip(z_idx, 0, D - 1)
+    y_idx = jnp.clip(y_idx, 0, H - 1)
+    x_idx = jnp.clip(x_idx, 0, W - 1)
+
+    # Fetch values
+    vals = field[z_idx, y_idx, x_idx]
+
+    # Replace out-of-bounds with cval
+    return jnp.where(in_bounds, vals, cval)
 
 
 def sample_vector_field_nearest(
     coordinates: JaxArray,
-    valid_coordinates: JaxArray,
     field: JaxArray,
     origin: JaxArray,
     scale: JaxArray,
-    cval: float = 0.0,
+    cval: float,
 ) -> JaxArray:
-    """Sample vectors from a 3D vector field using nearest neighbor interpolation.
+    """
+    Sample a 3D vector field using nearest-neighbor sampling.
+
+    Out-of-bounds coordinates return a constant value.
 
     Parameters
     ----------
-    coordinates : JaxArray
-        Array of shape (n_coordinates, 3) containing the 3D coordinates
-        at which to sample the field. May be padded with invalid entries.
-    valid_coordinates : JaxArray
-        Array of shape (n_coordinates,) containing boolean values indicating
-        which coordinates are valid (True) vs padding (False).
     field : JaxArray
-        (3, shape_x, shape_y, shape_z) Vector field array.
-    origin : JaxArray, optional
-        Array of shape (3,) specifying the origin of the field coordinate system.
-    scale : JaxArray, optional
-        Array of shape (3,) specifying the scale (voxel size) of the field.
-    cval : float, optional
-        Constant value to use for invalid coordinates or coordinates outside
-        field bounds. Default is 0.0.
+        Array of shape (C, D, H, W) representing the vector field,
+        where C is the number of dimensions of the vectors.
+    coordinates : JaxArray
+        Array of shape (N, 3) containing N (x, y, z) coordinates in voxel index space.
+    origin : JaxArray
+        Origin of the field coordinate system, used to transform coordinates.
+    scale : JaxArray
+        Scale of the field coordinate system, used to transform coordinates.
+    cval : float
+        Constant value to use for out-of-bounds samples.
 
     Returns
     -------
-    JaxArray
-        Array of shape (n_coordinates, 3) containing the sampled vector values.
-        Invalid coordinates will have vectors filled with `cval`.
+    values : JaxArray
+        Array of shape (N, C) containing the vector field values
+        sampled at each input point.
     """
-    # Transform coordinates to field coordinate system
-    field_coords = (coordinates - origin) / scale
+    _, D, H, W = field.shape
 
-    spatial_shape = jnp.array(field.shape[1:4])
+    coordinates = (coordinates - origin) / scale
+    coordinates = jnp.round(coordinates).astype(jnp.int32)
+    xi, yi, zi = coordinates[:, 0], coordinates[:, 1], coordinates[:, 2]
 
-    # Vectorize over all coordinates
-    def _sample_single_coord(coord: JaxArray, is_valid: JaxArray) -> JaxArray:
-        """Sample a single coordinate with validity check.
+    # Check bounds
+    in_bounds = (xi >= 0) & (xi < D) & (yi >= 0) & (yi < H) & (zi >= 0) & (zi < W)
 
-        Parameters
-        ----------
-        coord : JaxArray
-            Single coordinate of shape (3,).
-        is_valid : JaxArray
-            Boolean indicating if this coordinate is valid.
+    # Clamp to valid range for indexing (only used where valid == True)
+    xi_safe = jnp.clip(xi, 0, D - 1)
+    yi_safe = jnp.clip(yi, 0, H - 1)
+    zi_safe = jnp.clip(zi, 0, W - 1)
 
-        Returns
-        -------
-        JaxArray
-            Sampled vector or cval-filled vector if invalid.
-        """
-        sampled_vector = _sample_vector_nearest_neighbor(
-            coord, field, spatial_shape, cval
-        )
-        invalid_vector = jnp.full(field.shape[0], cval)
-        return jax.lax.cond(is_valid, lambda: sampled_vector, lambda: invalid_vector)
+    # Sample vector field
+    samples_all = field[:, xi_safe, yi_safe, zi_safe].T  # (N, C)
 
-    vectorized_sample = jax.vmap(_sample_single_coord)
-    return vectorized_sample(field_coords, valid_coordinates)
+    # Apply cval to invalid points
+    return jnp.where(in_bounds[:, None], samples_all, cval)
 
 
 def sample_vector_field_linear(
     coordinates: JaxArray,
-    valid_coordinates: JaxArray,
     field: JaxArray,
     origin: JaxArray,
     scale: JaxArray,
-    cval: float = 0.0,
+    cval: float,
 ) -> JaxArray:
-    """Sample vectors from a 3D vector field using trilinear interpolation.
+    """
+    Sample a 3D vector field using trilinear interpolation.
+
+    Out-of-bounds coordinates return a constant value.
 
     Parameters
     ----------
+    field : JaxArray
+        Array of shape (C, D, H, W) representing the vector field,
+        where C is the number of dimensions in the vectors.
     coordinates : JaxArray
-        Array of shape (n_coordinates, 3) containing the 3D coordinates
-        at which to sample the field. May be padded with invalid entries.
-    valid_coordinates : JaxArray
-        Array of shape (n_coordinates,) containing boolean values indicating
-        which coordinates are valid (True) vs padding (False).
-    field : JaxArray
-        Vector field array with shape (3, shape_x, shape_y, shape_z)
-    origin : JaxArray, optional
-        Array of shape (3,) specifying the origin of the field coordinate system.
-    scale : JaxArray, optional
-        Array of shape (3,) specifying the scale (voxel size) of the field.
-    cval : float, optional
-        Constant value to use for invalid coordinates or coordinates outside
-        field bounds. Default is 0.0.
-
-    Returns
-    -------
-    JaxArray
-        Array of shape (n_coordinates, 3) containing the sampled vector values.
-        Invalid coordinates will have vectors filled with `cval`.
-    """
-    # Transform coordinates to field coordinate system
-    field_coords = (coordinates - origin) / scale
-
-    spatial_shape = jnp.array(field.shape[1:4])
-
-    # Vectorize over all coordinates
-    def _sample_single_coord(coord: JaxArray, is_valid: JaxArray) -> JaxArray:
-        """Sample a single coordinate with validity check.
-
-        Parameters
-        ----------
-        coord : JaxArray
-            Single coordinate of shape (3,).
-        is_valid : JaxArray
-            Boolean indicating if this coordinate is valid.
-
-        Returns
-        -------
-        JaxArray
-            Sampled vector or cval-filled vector if invalid.
-        """
-        sampled_vector = _sample_vector_linear(coord, field, spatial_shape, cval)
-        invalid_vector = jnp.full(field.shape[0], cval)
-        return jax.lax.cond(is_valid, lambda: sampled_vector, lambda: invalid_vector)
-
-    vectorized_sample = jax.vmap(_sample_single_coord)
-    return vectorized_sample(field_coords, valid_coordinates)
-
-
-def _sample_scalar_nearest_neighbor(
-    coord: JaxArray,
-    field: JaxArray,
-    field_shape: JaxArray,
-    cval: float,
-) -> JaxArray:
-    """Sample a single point from a scalar field using nearest neighbor interpolation.
-
-    Parameters
-    ----------
-    coord : JaxArray
-        Array of shape (3,) containing the coordinate to sample.
-    field : JaxArray
-        Array of shape (shape_x, shape_y, shape_z) containing the scalar field.
-    field_shape : JaxArray
-        Array of shape (3,) containing the field dimensions.
+        Array of shape (N, 3) containing N (x, y, z) coordinates in voxel index space.
+    origin : JaxArray
+        The origin of the field coordinate system.
+    scale : JaxArray
+        The scale (voxel size) of the field.
     cval : float
-        Constant value for out-of-bounds coordinates.
+        Constant value to use for out-of-bounds samples.
 
     Returns
     -------
-    JaxArray
-        Scalar value sampled from the field.
+    values : JaxArray
+        Array of shape (N, C) containing the vector field values
+        sampled at each input point.
     """
-    # Round to nearest integer indices
-    indices = jnp.round(coord).astype(jnp.int32)
+    _, D, H, W = field.shape
 
-    # Check if coordinates are within bounds
-    in_bounds = jnp.all((indices >= 0) & jnp.all(indices < field_shape))
+    coordinates = (coordinates - origin) / scale
+    x, y, z = coordinates[:, 0], coordinates[:, 1], coordinates[:, 2]
 
-    # Get value with constant boundary handling
-    return jax.lax.cond(
-        in_bounds, lambda: field[indices[0], indices[1], indices[2]], lambda: cval
+    # Floor and ceil indices
+    x0 = jnp.floor(x).astype(jnp.int32)
+    x1 = x0 + 1
+    y0 = jnp.floor(y).astype(jnp.int32)
+    y1 = y0 + 1
+    z0 = jnp.floor(z).astype(jnp.int32)
+    z1 = z0 + 1
+
+    # Clip indices for safe access
+    x0c = jnp.clip(x0, 0, W - 1)
+    x1c = jnp.clip(x1, 0, W - 1)
+    y0c = jnp.clip(y0, 0, H - 1)
+    y1c = jnp.clip(y1, 0, H - 1)
+    z0c = jnp.clip(z0, 0, D - 1)
+    z1c = jnp.clip(z1, 0, D - 1)
+
+    # Fractional parts
+    xd = x - x0
+    yd = y - y0
+    zd = z - z0
+
+    def get_sample(x_idx, y_idx, z_idx):
+        return field[:, x_idx, y_idx, z_idx].T  # shape (N, C)
+
+    # Gather values at 8 neighboring corners
+    c000 = get_sample(x0c, y0c, z0c)
+    c001 = get_sample(x0c, y0c, z1c)
+    c010 = get_sample(x0c, y1c, z0c)
+    c011 = get_sample(x0c, y1c, z1c)
+    c100 = get_sample(x1c, y0c, z0c)
+    c101 = get_sample(x1c, y0c, z1c)
+    c110 = get_sample(x1c, y1c, z0c)
+    c111 = get_sample(x1c, y1c, z1c)
+
+    # Interpolation weights
+    w000 = (1 - xd) * (1 - yd) * (1 - zd)
+    w001 = (xd) * (1 - yd) * (1 - zd)
+    w010 = (1 - xd) * (yd) * (1 - zd)
+    w011 = (xd) * (yd) * (1 - zd)
+    w100 = (1 - xd) * (1 - yd) * (zd)
+    w101 = (xd) * (1 - yd) * (zd)
+    w110 = (1 - xd) * (yd) * (zd)
+    w111 = (xd) * (yd) * (zd)
+
+    # Weighted sum of neighbors
+    values = (
+        w000[:, None] * c000
+        + w001[:, None] * c001
+        + w010[:, None] * c010
+        + w011[:, None] * c011
+        + w100[:, None] * c100
+        + w101[:, None] * c101
+        + w110[:, None] * c110
+        + w111[:, None] * c111
     )
 
+    # Determine if any of the 8 neighbors are out-of-bounds
+    in_bounds = (x0 >= 0) & (x1 < W) & (y0 >= 0) & (y1 < H) & (z0 >= 0) & (z1 < D)
 
-def _sample_scalar_linear(
-    coord: JaxArray,
-    field: JaxArray,
-    field_shape: JaxArray,
-    cval: float,
-) -> JaxArray:
-    """Sample a single point from a scalar field using trilinear interpolation.
+    values = jnp.where(in_bounds[:, None], values, cval)
 
-    Parameters
-    ----------
-    coord : JaxArray
-        Array of shape (3,) containing the coordinate to sample.
-    field : JaxArray
-        Array of shape (shape_x, shape_y, shape_z) containing the scalar field.
-    field_shape : JaxArray
-        Array of shape (3,) containing the field dimensions.
-    cval : float
-        Constant value for out-of-bounds coordinates.
-
-    Returns
-    -------
-    JaxArray
-        Scalar value interpolated from the field.
-    """
-    # Get integer part (lower corner) and fractional part
-    lower_indices = jnp.floor(coord).astype(jnp.int32)
-    fractions = coord - lower_indices
-
-    # Define the 8 corner offsets for trilinear interpolation
-    offsets = jnp.array(
-        [
-            [0, 0, 0],
-            [1, 0, 0],
-            [0, 1, 0],
-            [1, 1, 0],
-            [0, 0, 1],
-            [1, 0, 1],
-            [0, 1, 1],
-            [1, 1, 1],
-        ]
-    )
-
-    def _get_corner_value(offset: JaxArray) -> JaxArray:
-        """Get value at a corner of the interpolation cube.
-
-        Parameters
-        ----------
-        offset : JaxArray
-            Array of shape (3,) containing the offset from the lower corner.
-
-        Returns
-        -------
-        JaxArray
-            The field value at the corner with boundary handling.
-        """
-        corner_indices = lower_indices + offset
-        in_bounds = jnp.all(
-            (corner_indices >= 0) & jnp.all(corner_indices < field_shape)
-        )
-
-        return jax.lax.cond(
-            in_bounds,
-            lambda: field[corner_indices[0], corner_indices[1], corner_indices[2]],
-            lambda: cval,
-        )
-
-    # Get values at all 8 corners
-    corner_values = jax.vmap(_get_corner_value)(offsets)
-
-    # Compute trilinear interpolation weights
-    weights = jnp.array(
-        [
-            (1 - fractions[0]) * (1 - fractions[1]) * (1 - fractions[2]),  # [0,0,0]
-            fractions[0] * (1 - fractions[1]) * (1 - fractions[2]),  # [1,0,0]
-            (1 - fractions[0]) * fractions[1] * (1 - fractions[2]),  # [0,1,0]
-            fractions[0] * fractions[1] * (1 - fractions[2]),  # [1,1,0]
-            (1 - fractions[0]) * (1 - fractions[1]) * fractions[2],  # [0,0,1]
-            fractions[0] * (1 - fractions[1]) * fractions[2],  # [1,0,1]
-            (1 - fractions[0]) * fractions[1] * fractions[2],  # [0,1,1]
-            fractions[0] * fractions[1] * fractions[2],  # [1,1,1]
-        ]
-    )
-
-    # Weighted sum of corner values
-    return jnp.sum(weights * corner_values)
-
-
-def _sample_vector_nearest_neighbor(
-    coord: JaxArray,
-    field: JaxArray,
-    spatial_shape: JaxArray,
-    cval: float,
-) -> JaxArray:
-    """Sample a single point from a vector field using nearest neighbor interpolation.
-
-    Parameters
-    ----------
-    coord : JaxArray
-        Array of shape (3,) containing the coordinate to sample.
-    field : JaxArray
-        Array of shape (shape_x, shape_y, shape_z, vector_dim)
-        containing the vector field.
-    spatial_shape : JaxArray
-        Array of shape (3,) containing the spatial dimensions of the field.
-    cval : float
-        Constant value for out-of-bounds coordinates.
-
-    Returns
-    -------
-    JaxArray
-        Vector value sampled from the field.
-    """
-    # Round to nearest integer indices
-    indices = jnp.round(coord).astype(jnp.int32)
-
-    # Check if coordinates are within bounds
-    in_bounds = jnp.all((indices >= 0) & jnp.all(indices < spatial_shape))
-
-    # Get vector with constant boundary handling
-    return jax.lax.cond(
-        in_bounds,
-        lambda: field[:, indices[0], indices[1], indices[2]],
-        lambda: jnp.full(field.shape[0], cval),
-    )
-
-
-def _sample_vector_linear(
-    coord: JaxArray,
-    field: JaxArray,
-    spatial_shape: JaxArray,
-    cval: float,
-) -> JaxArray:
-    """Sample a single point from a vector field using trilinear interpolation.
-
-    Parameters
-    ----------
-    coord : JaxArray
-        Array of shape (3,) containing the coordinate to sample.
-    field : JaxArray
-        Array of shape (shape_x, shape_y, shape_z, vector_dim)
-        containing the vector field.
-    spatial_shape : JaxArray
-        Array of shape (3,) containing the spatial dimensions of the field.
-    cval : float
-        Constant value for out-of-bounds coordinates.
-
-    Returns
-    -------
-    JaxArray
-        Vector value interpolated from the field.
-    """
-    # Get integer part (lower corner) and fractional part
-    lower_indices = jnp.floor(coord).astype(jnp.int32)
-    fractions = coord - lower_indices
-
-    # Define the 8 corner offsets for trilinear interpolation
-    offsets = jnp.array(
-        [
-            [0, 0, 0],
-            [1, 0, 0],
-            [0, 1, 0],
-            [1, 1, 0],
-            [0, 0, 1],
-            [1, 0, 1],
-            [0, 1, 1],
-            [1, 1, 1],
-        ]
-    )
-
-    def _get_corner_vector(offset: JaxArray) -> JaxArray:
-        """Get vector value at a corner of the interpolation cube.
-
-        Parameters
-        ----------
-        offset : JaxArray
-            Array of shape (3,) containing the offset from the lower corner.
-
-        Returns
-        -------
-        JaxArray
-            The field vector at the corner with boundary handling.
-        """
-        corner_indices = lower_indices + offset
-        in_bounds = jnp.all((corner_indices >= 0) & (corner_indices < spatial_shape))
-
-        return jax.lax.cond(
-            in_bounds,
-            lambda: field[:, corner_indices[0], corner_indices[1], corner_indices[2]],
-            lambda: jnp.full(field.shape[0], cval),
-        )
-
-    # Get vectors at all 8 corners
-    corner_vectors = jax.vmap(_get_corner_vector)(offsets)
-
-    # Compute trilinear interpolation weights
-    weights = jnp.array(
-        [
-            (1 - fractions[0]) * (1 - fractions[1]) * (1 - fractions[2]),  # [0,0,0]
-            fractions[0] * (1 - fractions[1]) * (1 - fractions[2]),  # [1,0,0]
-            (1 - fractions[0]) * fractions[1] * (1 - fractions[2]),  # [0,1,0]
-            fractions[0] * fractions[1] * (1 - fractions[2]),  # [1,1,0]
-            (1 - fractions[0]) * (1 - fractions[1]) * fractions[2],  # [0,0,1]
-            fractions[0] * (1 - fractions[1]) * fractions[2],  # [1,0,1]
-            (1 - fractions[0]) * fractions[1] * fractions[2],  # [0,1,1]
-            fractions[0] * fractions[1] * fractions[2],  # [1,1,1]
-        ]
-    )
-
-    # Weighted sum of corner vectors
-    return jnp.sum(weights[:, None] * corner_vectors, axis=0)
+    return values
