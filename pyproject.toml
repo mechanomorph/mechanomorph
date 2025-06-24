@@ -36,6 +36,7 @@ classifiers = [
 # add your package dependencies here
 dependencies = [
     "dask",
+    "equinox>=0.10.4",
     "h5py>=3.11.0",
     "imagecodecs",
     "jax>=0.4.13",
